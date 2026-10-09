@@ -1,5 +1,21 @@
 # Деплой Goal Tracker → https://producer.bimoool.com
 
+## Одна команда (Mac)
+
+```bash
+grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' ~/Downloads/envproducer.txt | head -1 | ssh -i ~/.ssh/vps_deploy -o IdentitiesOnly=yes root@192.241.141.47 'cd /opt/goaltracker && git pull -q --ff-only </dev/null && bash deploy/go.sh'
+```
+
+Делает `deploy/go.sh`: токен → `.env` (600, без вывода), allowlist 65107390 →
+сборка и запуск на 127.0.0.1:3100 → блок сайта в Caddyfile (копия, `caddy validate`,
+`systemctl reload caddy`) → бот (его ошибка сайт не блокирует). Повторный запуск безопасен.
+
+Пароль входа (логин `bim`): `ssh -i ~/.ssh/vps_deploy -o IdentitiesOnly=yes root@192.241.141.47 'grep ^BASIC_AUTH_PASSWORD= /opt/goaltracker/.env'`
+
+---
+
+Ниже — те же шаги по отдельности.
+
 Сервер 192.241.141.47: на хосте работает Caddy (порты 80/443, автоматический HTTPS).
 Приложение — Docker Compose-проект `goaltracker` (Postgres + веб + бот), веб слушает
 только `127.0.0.1:3100`. В Caddyfile добавляется один новый блок сайта; существующие

@@ -91,9 +91,13 @@ echo
 
 if has TELEGRAM_BOT_TOKEN && grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env; then
   say "Telegram-бот"
-  docker compose --profile bot up -d bot
-  sleep 5
-  docker compose logs --tail=3 bot
+  # Бот не должен мешать сайту: ошибка здесь не прерывает установку.
+  if docker compose --profile bot up -d bot; then
+    sleep 5
+    docker compose logs --tail=3 bot || true
+  else
+    echo "бот не запустился — сайт работает, бот можно поднять позже"
+  fi
 else
   echo "Бот не запущен: в .env нет TELEGRAM_BOT_TOKEN или TELEGRAM_ALLOWED_USER_IDS"
 fi
