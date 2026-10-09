@@ -58,7 +58,7 @@ describe("renderReport", () => {
     const text = renderReport(period, prefillReport({ items, completedTaskTitles: [], nextWeekTaskTitles: [], periodEnd: period.periodEnd }));
     expect(text.startsWith("ОТЧЁТ ЗА 1 НЕДЕЛЮ\nПериод: 02.10.2026–08.10.2026")).toBe(true);
     expect(text).toContain("1) Провести 15 кастдевов — Требует подтверждения");
-    expect(text).toContain("2) Провести 3 встречи — в процессе (1 из 3 встречи (33%))");
+    expect(text).toContain("2) Провести 3 встречи — в процессе; 1 из 3 встречи (33%)");
     expect(text).toContain("Фокус:\n");
     expect(text).toContain("Заполняется в последнем отчёте месяца.");
     const headers = ["1. Статус по декларации", "2. Работа за неделю", "3. Финансы за месяц", "4. Дополнительный бизнес", "5. Состояние", "6. Обратная связь, вызовы, идеи"];

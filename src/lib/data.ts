@@ -131,3 +131,18 @@ export async function getReportByPeriod(periodStart: string) {
   const [r] = await getDb().select().from(weeklyReports).where(eq(weeklyReports.periodStart, periodStart));
   return r ?? null;
 }
+
+/** Варианты для выпадающих списков в формах задач. */
+export async function getLinkOptions() {
+  const [goalRows, decl, projectRows] = await Promise.all([listGoals(), getDeclaration(), listProjects()]);
+  return {
+    goals: goalRows.filter((g) => g.status === "active").map((g) => ({ id: g.id, title: g.title })),
+    items: (decl?.items ?? []).map((i) => ({ id: i.id, title: i.shortTitle })),
+    projects: projectRows.map((p) => ({ id: p.id, title: p.title })),
+  };
+}
+
+export async function goalTitleMap() {
+  const rows = await listGoals();
+  return new Map(rows.map((g) => [g.id, g.title]));
+}

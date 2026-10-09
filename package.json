@@ -1,12 +1,17 @@
 {
-  "name": "app-scaffold",
+  "name": "goal-tracker",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "bot": "tsx src/bot/main.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

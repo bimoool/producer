@@ -119,7 +119,7 @@ export function renderReport(period: ReportPeriod, f: ReportFields): string {
   if (f.declaration.length === 0) out.push(UNCONFIRMED);
   f.declaration.forEach((d, idx) => {
     let s = `${idx + 1}) ${d.title} — ${statusLabel(d.status)}`;
-    if (d.progressText.trim()) s += ` (${d.progressText.trim()})`;
+    if (d.progressText.trim()) s += `; ${d.progressText.trim()}`;
     out.push(s);
     if (d.comment.trim()) out.push(`   ${d.comment.trim()}`);
   });
