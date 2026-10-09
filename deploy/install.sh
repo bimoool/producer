@@ -1,26 +1,65 @@
 #!/usr/bin/env bash
-# Установка/обновление Goal Tracker на сервере. Запускать на сервере от root:
-#   bash /opt/goaltracker/deploy/install.sh            — приложение (Docker), без изменения nginx
-#   bash /opt/goaltracker/deploy/install.sh --nginx    — плюс vhost producer.bimoool.com и сертификат
-# Скрипт идемпотентен: повторный запуск не создаёт дублей данных и не трогает .env.
+# Установка/обновление Goal Tracker на сервере (от root):
+#   bash /opt/goaltracker/deploy/install.sh           — приложение в Docker на 127.0.0.1:3100
+#   bash /opt/goaltracker/deploy/install.sh --caddy   — добавить producer.bimoool.com в Caddyfile
+# Идемпотентно: .env не перезаписывается, данные не дублируются,
+# чужие контейнеры и сайты не трогаются (только проект compose "goaltracker").
 set -euo pipefail
 
 DOMAIN=producer.bimoool.com
 APP_DIR=/opt/goaltracker
 PORT=3100
-WITH_NGINX=0
-[ "${1:-}" = "--nginx" ] && WITH_NGINX=1
+CADDYFILE=/etc/caddy/Caddyfile
 
 say() { printf '\n==> %s\n' "$1"; }
 die() { printf '\n!!! %s\n' "$1" >&2; exit 1; }
 
-cd "$APP_DIR" || die "нет $APP_DIR — сначала git clone"
+cd "$APP_DIR" || die "нет $APP_DIR"
+
+if [ "${1:-}" = "--caddy" ]; then
+  say "Caddy: добавляю только сайт $DOMAIN"
+  systemctl is-active --quiet caddy || die "caddy не запущен"
+  curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null || die "приложение на 127.0.0.1:$PORT не отвечает — сначала install.sh без флагов"
+  if grep -qE "^[[:space:]]*$DOMAIN([[:space:],{]|$)" "$CADDYFILE"; then
+    echo "$DOMAIN уже есть в $CADDYFILE — ничего не меняю"
+  else
+    BACKUP="$CADDYFILE.bak.$(date +%Y%m%d-%H%M%S)"
+    cp -p "$CADDYFILE" "$BACKUP"
+    echo "резервная копия: $BACKUP"
+    cat >> "$CADDYFILE" <<CADDY
+
+# Goal Tracker (добавлено deploy/install.sh)
+$DOMAIN {
+	reverse_proxy 127.0.0.1:$PORT {
+		# адрес клиента для защиты от перебора; заголовок клиента перезаписывается
+		header_up X-Real-IP {remote_host}
+	}
+}
+CADDY
+    if ! caddy validate --config "$CADDYFILE" --adapter caddyfile >/tmp/caddy-validate.log 2>&1; then
+      cp -p "$BACKUP" "$CADDYFILE"
+      tail -5 /tmp/caddy-validate.log
+      die "caddy validate не прошёл — Caddyfile восстановлен из копии, reload НЕ выполнялся"
+    fi
+    echo "caddy validate: OK"
+  fi
+  systemctl reload caddy
+  say "Жду сертификат (до 60 с)"
+  for i in $(seq 1 30); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/" || true)
+    [ "$code" = 401 ] && break
+    sleep 2
+  done
+  echo "https://$DOMAIN/ → HTTP $code (ожидается 401: сайт закрыт паролем)"
+  echo "health: $(curl -s "https://$DOMAIN/api/health")"
+  exit 0
+fi
 
 say "Проверки"
-command -v docker >/dev/null || die "docker не установлен (curl -fsSL https://get.docker.com | sh)"
+command -v docker >/dev/null || die "docker не установлен"
 docker compose version >/dev/null || die "нет docker compose plugin"
 if ss -ltn "sport = :$PORT" | grep -q LISTEN && ! docker compose ps --status running web 2>/dev/null | grep -q web; then
-  die "порт 127.0.0.1:$PORT занят другим процессом — задайте WEB_PORT в .env и поправьте proxy_pass"
+  die "порт $PORT занят другим процессом"
 fi
 
 say "Секреты в .env (права 600): добавляю только отсутствующие"
@@ -32,62 +71,32 @@ has POSTGRES_PASSWORD || echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .en
 has BASIC_AUTH_USER || echo "BASIC_AUTH_USER=bim" >> .env
 if ! has BASIC_AUTH_PASSWORD; then
   echo "BASIC_AUTH_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)" >> .env
-  echo "Создан пароль для входа на сайт (логин: $(grep '^BASIC_AUTH_USER=' .env | cut -d= -f2-)). Сохраните его в менеджер паролей:"
-  grep '^BASIC_AUTH_PASSWORD=' .env | cut -d= -f2-
+  echo "Создан пароль для входа на сайт. Посмотреть его: ssh ... 'grep BASIC_AUTH /opt/goaltracker/.env'"
 fi
 
-say "Сборка и запуск (db → migrate → web)"
-docker compose up -d --build
-for i in $(seq 1 30); do
+say "Сборка образов по одному (экономия памяти)"
+export COMPOSE_PARALLEL_LIMIT=1
+docker compose build migrate
+docker compose build web
+docker image prune -f --filter "label=com.docker.compose.project=goaltracker" >/dev/null 2>&1 || true
+
+say "Запуск (db → migrate → web)"
+docker compose up -d db migrate web
+for i in $(seq 1 40); do
   curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null && break
-  sleep 2
+  sleep 3
 done
-curl -fs "http://127.0.0.1:$PORT/api/health" || die "приложение не отвечает: docker compose logs --tail=50 web"
+curl -fs "http://127.0.0.1:$PORT/api/health" || die "приложение не отвечает: docker compose logs --tail=50 web migrate"
 echo
 
-if grep -q '^TELEGRAM_BOT_TOKEN=.' .env && grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env; then
+if has TELEGRAM_BOT_TOKEN && grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env; then
   say "Telegram-бот"
-  docker compose --profile bot up -d --build bot
+  docker compose --profile bot up -d bot
   sleep 5
-  docker compose logs --tail=5 bot
+  docker compose logs --tail=3 bot
 else
   echo "Бот не запущен: в .env нет TELEGRAM_BOT_TOKEN или TELEGRAM_ALLOWED_USER_IDS"
 fi
 
-[ "$WITH_NGINX" = 1 ] || { say "Готово (nginx не трогал). Для домена: bash deploy/install.sh --nginx"; exit 0; }
-
-say "nginx: только новый файл для $DOMAIN"
-command -v nginx >/dev/null && systemctl is-active --quiet nginx || die "nginx не запущен — этот шаг рассчитан на nginx. Пришлите вывод inspect-server.sh"
-if grep -RlsE "server_name[^;]*\b$DOMAIN\b" /etc/nginx --exclude="$DOMAIN" --exclude="$DOMAIN.conf" | grep -q .; then
-  die "$DOMAIN уже описан в другом конфиге nginx — не трогаю, нужна ручная проверка"
-fi
-if [ -d /etc/nginx/sites-available ] && grep -qs "sites-enabled" /etc/nginx/nginx.conf; then
-  DEST=/etc/nginx/sites-available/$DOMAIN
-  install -m 644 deploy/nginx-producer.bimoool.com.conf "$DEST.new"
-  [ -f "$DEST" ] && cp "$DEST" "$DEST.bak.$(date +%s)"
-  mv "$DEST.new" "$DEST"
-  ln -sf "$DEST" /etc/nginx/sites-enabled/$DOMAIN
-else
-  DEST=/etc/nginx/conf.d/$DOMAIN.conf
-  [ -f "$DEST" ] && cp "$DEST" "/root/$DOMAIN.conf.bak.$(date +%s)"
-  install -m 644 deploy/nginx-producer.bimoool.com.conf "$DEST"
-fi
-if ! nginx -t; then
-  rm -f "/etc/nginx/sites-enabled/$DOMAIN" "/etc/nginx/conf.d/$DOMAIN.conf"
-  die "nginx -t не прошёл — новый конфиг убран, nginx НЕ перезагружался"
-fi
-systemctl reload nginx
-
-say "HTTPS через существующий certbot"
-command -v certbot >/dev/null || die "certbot не найден — пришлите вывод inspect-server.sh, выберем способ"
-getent hosts "$DOMAIN" >/dev/null || die "DNS для $DOMAIN не настроен (A → IP сервера)"
-if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
-  certbot --nginx -d "$DOMAIN" --redirect --non-interactive --keep-until-expiring
-else
-  certbot --nginx -d "$DOMAIN" --redirect --non-interactive --agree-tos --register-unsafely-without-email
-fi
-nginx -t && systemctl reload nginx
-
-say "Проверка"
-curl -sI "https://$DOMAIN" | head -1
-echo "Ожидается 401 (сайт закрыт паролем). Откройте https://$DOMAIN в браузере."
+docker compose ps
+say "Готово. Домен: bash deploy/install.sh --caddy"

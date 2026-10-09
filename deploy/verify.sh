@@ -3,6 +3,7 @@
 # Пароль спрашивается скрытно и никуда не записывается.
 set -uo pipefail
 D=${DOMAIN:-producer.bimoool.com}
+# Caddy: http → https редирект 308
 ok() { printf '✓ %s\n' "$1"; }
 bad() { printf '✗ %s\n' "$1"; FAIL=1; }
 FAIL=0

@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // В Docker на сервере с 2 ГБ RAM типы не перепроверяем (tsc запускается до коммита).
+  typescript: { ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1" },
   async headers() {
     return [
       {
