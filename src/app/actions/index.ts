@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
+import { AccessDenied, assertOwner } from "@/lib/authz";
 import { addDaysISO, todayISO } from "@/lib/domain/dates";
 import { renderReport, reportFieldsSchema, type ReportFields, type ReportPeriod } from "@/lib/domain/report";
 
@@ -43,6 +44,7 @@ function fd(form: FormData): Record<string, string> {
 }
 
 function fail(e: unknown): ActionResult {
+  if (e instanceof AccessDenied) return { ok: false, error: "Нет доступа" };
   if (e instanceof z.ZodError) return { ok: false, error: e.issues.map((i) => i.message).join("; ") };
   const msg = e instanceof Error ? e.message : String(e);
   const locked = /DECLARATION_LOCKED|APPEND_ONLY|REPORT_SENT/.exec(msg);
@@ -67,6 +69,8 @@ const progressSchema = z.object({
 /** Обновление прогресса пункта декларации + запись в историю. Текст обязательства не трогается. */
 export async function updateDeclarationProgress(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const input = progressSchema.parse(fd(form));
     await getDb().transaction(async (tx) => {
       const [item] = await tx.select().from(declarationItems).where(eq(declarationItems.id, input.itemId)).for("update");
@@ -93,6 +97,8 @@ const itemStatusSchema = z.object({
 
 export async function updateDeclarationStatus(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const input = itemStatusSchema.parse(fd(form));
     await getDb()
       .update(declarationItems)
@@ -122,6 +128,8 @@ const goalSchema = z.object({
 
 export async function saveGoal(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const { id, ...input } = goalSchema.parse(fd(form));
     const db = getDb();
     if (id) {
@@ -138,6 +146,8 @@ export async function saveGoal(_: unknown, form: FormData): Promise<ActionResult
 
 export async function deleteGoal(id: string): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     await getDb().delete(goals).where(eq(goals.id, uuid.parse(id)));
     refresh();
     return { ok: true };
@@ -164,6 +174,8 @@ const taskSchema = z.object({
 
 export async function saveTask(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const { id, ...input } = taskSchema.parse(fd(form));
     const db = getDb();
     if (id) {
@@ -194,6 +206,8 @@ export async function saveTask(_: unknown, form: FormData): Promise<ActionResult
 
 export async function setTaskDone(id: string, done: boolean): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     await getDb()
       .update(tasks)
       .set(done ? { status: "done", completedAt: new Date() } : { status: "todo", completedAt: null })
@@ -208,6 +222,8 @@ export async function setTaskDone(id: string, done: boolean): Promise<ActionResu
 /** Перенос срока: "today" | "tomorrow" | "week" | "none". */
 export async function rescheduleTask(id: string, to: "today" | "tomorrow" | "week" | "none"): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const today = todayISO();
     const dueDate = to === "none" ? null : addDaysISO(today, to === "today" ? 0 : to === "tomorrow" ? 1 : 7);
     await getDb().update(tasks).set({ dueDate }).where(eq(tasks.id, uuid.parse(id)));
@@ -220,6 +236,8 @@ export async function rescheduleTask(id: string, to: "today" | "tomorrow" | "wee
 
 export async function deleteTask(id: string): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     await getDb().delete(tasks).where(eq(tasks.id, uuid.parse(id)));
     refresh();
     return { ok: true };
@@ -228,7 +246,13 @@ export async function deleteTask(id: string): Promise<ActionResult> {
   }
 }
 
-export async function deleteTaskAndGoHome(id: string, parentId: string | null) {
+export async function deleteTaskAndGoHome(id: string, parentId: string | null): Promise<ActionResult> {
+  // deleteTask тоже проверяет права; здесь — явная проверка до любых действий.
+  try {
+    await assertOwner();
+  } catch (e) {
+    return fail(e);
+  }
   const res = await deleteTask(id);
   if (res.ok) redirect(parentId ? `/tasks/${parentId}` : "/tasks");
   return res;
@@ -238,6 +262,8 @@ const commentSchema = z.object({ taskId: uuid, body: z.string().trim().min(1, "�
 
 export async function addComment(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const input = commentSchema.parse(fd(form));
     await getDb().insert(taskComments).values(input);
     refresh();
@@ -262,6 +288,8 @@ export async function saveReport(input: {
   status: "draft" | "final";
 }): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const period = periodSchema.parse(input.period);
     const fields = reportFieldsSchema.parse(input.fields);
     const status = z.enum(["draft", "final"]).parse(input.status);
@@ -292,6 +320,8 @@ export async function saveReport(input: {
 /** Отметить сохранённый отчёт отправленным: текст замораживается ровно в том виде, в каком был скопирован. */
 export async function markReportSent(id: string): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const reportId = uuid.parse(id);
     const db = getDb();
     const [r] = await db.select().from(weeklyReports).where(eq(weeklyReports.id, reportId));
@@ -316,6 +346,8 @@ const importSchema = z.object({
 /** Импорт точного текста отправленного отчёта. Текст сохраняется как есть (только переводы строк приводятся к \n). */
 export async function importReportText(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const input = importSchema.parse(fd(form));
     const db = getDb();
     const [r] = await db.select().from(weeklyReports).where(eq(weeklyReports.id, input.reportId));
@@ -360,6 +392,8 @@ const dealSchema = z.object({
 
 export async function saveDeal(_: unknown, form: FormData): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     const { id, ...input } = dealSchema.parse(fd(form));
     const db = getDb();
     if (id) await db.update(deals).set(input).where(eq(deals.id, uuid.parse(id)));
@@ -373,6 +407,8 @@ export async function saveDeal(_: unknown, form: FormData): Promise<ActionResult
 
 export async function deleteDeal(id: string): Promise<ActionResult> {
   try {
+    // Личные данные владельца: проверка на сервере в каждом действии.
+    await assertOwner();
     await getDb().delete(deals).where(eq(deals.id, uuid.parse(id)));
     refresh();
     return { ok: true };

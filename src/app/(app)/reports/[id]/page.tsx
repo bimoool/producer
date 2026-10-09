@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import { notFound } from "next/navigation";
 import { ReportEditor } from "@/components/app/report-editor";
 import { SentReport, type ReportFacts } from "@/components/app/sent-report";
@@ -5,6 +6,8 @@ import { getReport } from "@/lib/data";
 import { reportFieldsSchema } from "@/lib/domain/report";
 
 export default async function ReportPage({ params }: PageProps<"/reports/[id]">) {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const report = await getReport(id);

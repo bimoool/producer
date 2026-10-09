@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 
 export const SESSION_TTL_SEC = 30 * 24 * 60 * 60;
@@ -22,18 +22,6 @@ export async function createSession(telegramId: number, loginHash: string): Prom
     .onConflictDoNothing({ target: schema.sessions.loginHash })
     .returning({ id: schema.sessions.id });
   return rows.length ? token : null;
-}
-
-export async function validateSession(token: string | undefined, allowed: Set<number>): Promise<boolean> {
-  if (!token || token.length > 100) return false;
-  const s = schema.sessions;
-  const [row] = await getDb()
-    .select({ telegramId: s.telegramId })
-    .from(s)
-    .where(and(eq(s.tokenHash, sha256(token)), isNull(s.revokedAt), gt(s.expiresAt, new Date())))
-    .limit(1);
-  // Повторная проверка allowlist: удалённый из списка ID теряет доступ сразу.
-  return !!row && allowed.has(row.telegramId);
 }
 
 export async function revokeSession(token: string | undefined) {

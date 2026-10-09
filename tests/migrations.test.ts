@@ -109,6 +109,20 @@ d("миграции и повторный деплой", () => {
     await expect(sql`update weekly_reports set original_text = 'другое' where id = ${rep.id}`).rejects.toThrow(/REPORT_SENT/);
   });
 
+  it("Producer OS: владелец и два проекта, существующие таблицы не тронуты, повтор без дублей", async () => {
+    const owners = await sql`select telegram_id::text, is_owner from users`;
+    expect(owners).toEqual([{ telegram_id: "65107390", is_owner: true }]);
+    const ws = await sql`select slug, title, kind from workspaces order by created_at, slug`;
+    expect(ws.map((w) => w.slug).sort()).toEqual(["my-content", "vera"]);
+    expect(await sql`select count(*)::int n from workspace_members`).toEqual([{ n: 0 }]);
+    // личные данные на месте
+    const [p] = await sql`select title from projects`;
+    expect(p.title).toBe("Контент-завод ББФ");
+    const before = await sql`select (select count(*) from users)::int u, (select count(*) from workspaces)::int w`;
+    await runMigrations(url, folder);
+    expect(await sql`select (select count(*) from users)::int u, (select count(*) from workspaces)::int w`).toEqual(before);
+  });
+
   it("дата окончания декларации зафиксирована", async () => {
     await expect(sql`update declarations set ends_on = '2026-12-31'`).rejects.toThrow(/DECLARATION_LOCKED/);
   });

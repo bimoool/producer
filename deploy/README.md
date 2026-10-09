@@ -55,3 +55,13 @@ cp -p /etc/caddy/Caddyfile.bak.<время> /etc/caddy/Caddyfile && caddy valida
 mkdir -p /opt/goaltracker-backups && ( crontab -l 2>/dev/null | grep -v goaltracker-backups;
   echo '15 3 * * * cd /opt/goaltracker && docker compose exec -T db pg_dump -U goal goaltracker | gzip > /opt/goaltracker-backups/goal-$(date +\%F).sql.gz && find /opt/goaltracker-backups -name "*.sql.gz" -mtime +7 -delete' ) | crontab -
 ```
+
+## Резервная копия перед миграцией
+
+`deploy/install.sh` перед запуском миграций вызывает `deploy/backup.sh`:
+`pg_dump` из контейнера `db` проекта goaltracker → `/opt/goaltracker-backups/pre-migrate-<время>.sql.gz`
+(права 600) → проверка архива → восстановление во временную БД `goaltracker_restore_check`
+в том же контейнере → сверка числа строк ключевых таблиц → удаление временной БД.
+Если что-то не сходится, миграции не запускаются. Другие контейнеры не затрагиваются.
+
+Вручную: `bash /opt/goaltracker/deploy/backup.sh`.

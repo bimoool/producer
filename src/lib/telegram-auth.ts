@@ -1,5 +1,4 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { parseAllowlist } from "@/bot/parse";
 
 /** Поля, которые присылает Telegram Login Widget. */
 const FIELDS = ["id", "first_name", "last_name", "username", "photo_url", "auth_date"] as const;
@@ -15,7 +14,7 @@ export type TelegramLoginResult =
  */
 export function verifyTelegramLogin(
   params: URLSearchParams,
-  opts: { botToken: string; allowed: Set<number>; nowSec: number; maxAgeSec: number },
+  opts: { botToken: string; allowed?: Set<number>; nowSec: number; maxAgeSec: number },
 ): TelegramLoginResult {
   const hash = params.get("hash") ?? "";
   const id = params.get("id") ?? "";
@@ -39,16 +38,15 @@ export function verifyTelegramLogin(
     return { ok: false, reason: "expired" };
   }
   const telegramId = Number(id);
-  if (!opts.allowed.has(telegramId)) return { ok: false, reason: "forbidden" };
+  if (opts.allowed && !opts.allowed.has(telegramId)) return { ok: false, reason: "forbidden" };
   return { ok: true, telegramId, hash };
 }
 
-export type AuthConfig = { botToken: string; allowed: Set<number> } | null;
+export type AuthConfig = { botToken: string } | null;
 
-/** Без токена или списка разрешённых ID вход закрыт полностью. */
+/** Без токена бота вход закрыт полностью. Кого пускать — решает БД (users / workspace_members). */
 export function authConfig(): AuthConfig {
   const botToken = process.env.TELEGRAM_BOT_TOKEN ?? "";
-  const allowed = parseAllowlist(process.env.TELEGRAM_ALLOWED_USER_IDS);
-  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(botToken) || allowed.size === 0) return null;
-  return { botToken, allowed };
+  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(botToken)) return null;
+  return { botToken };
 }

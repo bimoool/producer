@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import Link from "next/link";
 import { PageHeader } from "@/components/app/page-header";
 import { CopyButton } from "@/components/app/copy-button";
@@ -9,6 +10,8 @@ import { listReports } from "@/lib/data";
 import { formatRu } from "@/lib/domain/dates";
 
 export default async function ReportsPage() {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const reports = await listReports();
   return (
     <>

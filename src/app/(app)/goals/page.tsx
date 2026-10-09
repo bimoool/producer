@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import { PlusIcon } from "lucide-react";
 import { DeleteGoalButton, GoalDialog } from "@/components/app/goal-form";
 import { PageHeader } from "@/components/app/page-header";
@@ -11,6 +12,8 @@ import { GOAL_STATUS, type GoalStatus } from "@/lib/domain/labels";
 import { computeProgress, formatProgress } from "@/lib/domain/progress";
 
 export default async function GoalsPage() {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const [goals, projects] = await Promise.all([listGoals(), listProjects()]);
   const projectTitles = new Map(projects.map((p) => [p.id, p.title]));
   const projectOpts = projects.map((p) => ({ id: p.id, title: p.title }));

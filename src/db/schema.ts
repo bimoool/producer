@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
+  boolean,
   check,
   date,
   doublePrecision,
@@ -250,5 +251,72 @@ export const sessions = pgTable(
   (t) => [
     unique("sessions_token_hash_unique").on(t.tokenHash),
     unique("sessions_login_hash_unique").on(t.loginHash),
+  ],
+);
+
+// ---------------- Producer OS ----------------
+// Пространства проектов («Проекты» в интерфейсе). Существующая таблица projects
+// (группировка личных целей/задач) — отдельная сущность и не затрагивается.
+
+/** Все, кто может войти на сайт. Владелец — is_owner; блокировка — disabled_at. */
+export const users = pgTable(
+  "users",
+  {
+    id: id(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    displayName: text("display_name").notNull(),
+    isOwner: boolean("is_owner").notNull().default(false),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("users_telegram_id_unique").on(t.telegramId),
+    check("users_telegram_id_positive", sql`${t.telegramId} > 0`),
+  ],
+);
+
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    // client — клиентский проект, personal — личный
+    kind: text("kind").notNull().default("client"),
+    // Своя копия шаблона Google Sheets (пока только ссылка; импорт — позже)
+    sheetUrl: text("sheet_url"),
+    sheetId: text("sheet_id"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("workspaces_slug_unique").on(t.slug),
+    check("workspaces_kind_check", sql`${t.kind} in ('client','personal')`),
+    check("workspaces_slug_format", sql`${t.slug} ~ '^[a-z0-9][a-z0-9-]{1,40}$'`),
+  ],
+);
+
+/** Доступ пользователя к проекту. Отзыв — revoked_at (история сохраняется). */
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: id(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    role: text("role").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("workspace_members_pair_unique").on(t.workspaceId, t.userId),
+    check("workspace_members_role_check", sql`${t.role} in ('editor','viewer')`),
+    index("workspace_members_user_idx").on(t.userId),
   ],
 );

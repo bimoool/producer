@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeftIcon, PlusIcon } from "lucide-react";
@@ -15,6 +16,8 @@ import { TASK_PRIORITY, TASK_STATUS, type TaskPriority, type TaskStatus } from "
 import { computeProgress, formatProgress } from "@/lib/domain/progress";
 
 export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [data, opts] = await Promise.all([getTask(id), getLinkOptions()]);

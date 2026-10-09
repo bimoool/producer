@@ -80,6 +80,9 @@ docker compose build migrate
 docker compose build web
 docker image prune -f --filter "label=com.docker.compose.project=goaltracker" >/dev/null 2>&1 || true
 
+say "Резервная копия БД перед миграцией (с проверкой восстановлением)"
+bash deploy/backup.sh || die "резервная копия не создана или не прошла проверку — миграции НЕ запускались"
+
 say "Запуск (db → migrate → web)"
 docker compose up -d db migrate web
 for i in $(seq 1 40); do

@@ -1,15 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { appUrl } from "@/lib/app-origin";
+import { resolveViewer } from "@/lib/authz";
 import { clientIp, loginLimiter } from "@/lib/limiter";
-import { SESSION_COOKIE, validateSession } from "@/lib/session";
+import { SESSION_COOKIE } from "@/lib/session";
 import { authConfig } from "@/lib/telegram-auth";
 
 const PUBLIC = new Set(["/login", "/auth/telegram/callback", "/auth/logout", "/api/health"]);
 
+/** Пути, доступные не-владельцу (дальше права проверяет каждая страница и каждое действие). */
+function memberPath(pathname: string) {
+  return pathname === "/projects" || pathname.startsWith("/projects/");
+}
+
 /**
- * Каждая страница, server action и API (кроме PUBLIC) требует действующую
- * серверную сессию: cookie → SHA-256 → запись в БД, не отозвана, не истекла,
- * Telegram ID в allowlist. Без настроенного входа доступ закрыт.
+ * Первый рубеж: действующая сессия (сверка с БД на каждый запрос) и грубое
+ * разделение «владелец / участник». Это НЕ единственная проверка: страницы и
+ * Server Actions сами проверяют права (lib/authz.ts).
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,18 +26,24 @@ export async function proxy(request: NextRequest) {
   }
   if (PUBLIC.has(pathname)) return NextResponse.next();
 
-  const cfg = authConfig();
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (cfg && token) {
+  const isPage = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
+  let viewer = null;
+  if (authConfig()) {
     try {
-      if (await validateSession(token, cfg.allowed)) return NextResponse.next();
+      viewer = await resolveViewer(request.cookies.get(SESSION_COOKIE)?.value);
     } catch {
       return new NextResponse("Service unavailable", { status: 503 });
     }
   }
-  const isPage = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
-  if (isPage) return NextResponse.redirect(appUrl("/login"), 303);
-  return new NextResponse("Unauthorized", { status: 401 });
+  if (!viewer) {
+    if (isPage) return NextResponse.redirect(appUrl("/login"), 303);
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+  if (!viewer.isOwner && !memberPath(pathname)) {
+    if (isPage) return NextResponse.redirect(appUrl("/projects"), 303);
+    return new NextResponse("Not found", { status: 404 });
+  }
+  return NextResponse.next();
 }
 
 export const config = {

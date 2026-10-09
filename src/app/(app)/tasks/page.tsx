@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import Link from "next/link";
 import { PlusIcon } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
@@ -12,6 +13,8 @@ import { cn } from "@/lib/utils";
 const FILTERS = { open: "Открытые", done: "Готовые", all: "Все" } as const;
 
 export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const sp = await searchParams;
   const filter = (typeof sp.f === "string" && sp.f in FILTERS ? sp.f : "open") as keyof typeof FILTERS;
   const [rows, opts, goalTitles] = await Promise.all([listTasks(filter), getLinkOptions(), goalTitleMap()]);

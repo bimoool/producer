@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import { DeclarationItemCard } from "@/components/app/declaration-item";
 import { PageHeader } from "@/components/app/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -5,6 +6,8 @@ import { getDeclaration, getProgressHistory } from "@/lib/data";
 import { formatRu } from "@/lib/domain/dates";
 
 export default async function DeclarationPage() {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const decl = await getDeclaration();
   if (!decl) return <p>Декларация не найдена.</p>;
   const histories = await Promise.all(decl.items.map((i) => getProgressHistory(i.id)));

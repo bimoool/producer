@@ -50,6 +50,20 @@
       "when": 1791536642123,
       "tag": "0006_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791557729408,
+      "tag": "0007_producer_os_workspaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791557730446,
+      "tag": "0008_producer_os_seed_and_log",
+      "breakpoints": true
     }
   ]
 }

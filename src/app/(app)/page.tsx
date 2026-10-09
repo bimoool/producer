@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import Link from "next/link";
 import { ArrowRightIcon, PlusIcon } from "lucide-react";
 import { GoalDialog } from "@/components/app/goal-form";
@@ -27,6 +28,8 @@ import { reportPeriodFor } from "@/lib/domain/report";
 const MAX = 5;
 
 export default async function Dashboard() {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const today = todayISO();
   const [decl, buckets, goals, activity, opts, goalTitles, deals] = await Promise.all([
     getDeclaration(),

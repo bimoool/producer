@@ -1,3 +1,4 @@
+import { ownerPage } from "@/lib/authz";
 import { PlusIcon } from "lucide-react";
 import { DEAL_STATUS, DealDialog, DeleteDealButton } from "@/components/app/deal-form";
 import { PageHeader } from "@/components/app/page-header";
@@ -37,6 +38,8 @@ function DealRow({ d }: { d: Deal }) {
 }
 
 export default async function FinancePage() {
+  // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
+  await ownerPage();
   const deals = await listDeals();
   const s = summarizeDeals(deals);
   const groups = [
