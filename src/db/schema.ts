@@ -320,3 +320,21 @@ export const workspaceMembers = pgTable(
     index("workspace_members_user_idx").on(t.userId),
   ],
 );
+
+/**
+ * Кэш последних успешно полученных данных из Google-таблицы проекта.
+ * Одна строка на проект, перезаписывается при синхронизации. Хранятся только
+ * нормализованные поля для интерфейса, а не копия таблицы. При ошибке Google
+ * данные остаются прежними, обновляются только last_attempt_at / last_error.
+ */
+export const workspaceSheetSnapshots = pgTable("workspace_sheet_snapshots", {
+  workspaceId: uuid("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  spreadsheetId: text("spreadsheet_id").notNull(),
+  spreadsheetTitle: text("spreadsheet_title"),
+  data: jsonb("data"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+});

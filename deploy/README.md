@@ -65,3 +65,11 @@ mkdir -p /opt/goaltracker-backups && ( crontab -l 2>/dev/null | grep -v goaltrac
 Если что-то не сходится, миграции не запускаются. Другие контейнеры не затрагиваются.
 
 Вручную: `bash /opt/goaltracker/deploy/backup.sh`.
+
+## Google Sheets (данные проектов)
+
+Чтение таблиц — сервисным аккаунтом Google, только чтение (`spreadsheets.readonly`).
+Ключ хранится только в `/opt/goaltracker/.env` как `GOOGLE_SERVICE_ACCOUNT_JSON`
+(JSON ключа в base64, одной строкой). Таблица открывается email сервисного аккаунта
+с правом «Читатель»; публичной она не становится. Снимок последних успешно полученных
+данных хранится в `workspace_sheet_snapshots` и остаётся при сбоях Google.

@@ -44,6 +44,8 @@ services:
       TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       APP_URL: ${APP_URL:-https://producer.bimoool.com}
+      # Google Sheets (только чтение): ключ сервисного аккаунта, JSON в base64. Без него разделы проекта покажут «не настроено».
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
       NODE_OPTIONS: --max-old-space-size=256
     ports:
       - "127.0.0.1:${WEB_PORT:-3100}:3000"

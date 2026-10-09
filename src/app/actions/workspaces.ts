@@ -7,6 +7,7 @@ import { getDb, schema } from "@/db";
 import { AccessDenied, assertOwner, assertWorkspace } from "@/lib/authz";
 import { WORKSPACE_ROLES } from "@/lib/permissions";
 import { parseSheetLink } from "@/lib/sheets-link";
+import { syncWorkspaceSheet } from "@/lib/sheets/sync";
 
 const { users, workspaces, workspaceMembers } = schema;
 
@@ -189,6 +190,20 @@ export async function setUserBlocked(userId: string, blocked: boolean): Promise<
       .where(eq(users.id, uuid.parse(userId)));
     refresh();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Google-таблица проекта ----------
+
+/** «Обновить данные»: только чтение из Google. Доступно всем, кто видит проект; не чаще раза в 30 с. */
+export async function refreshSheet(workspaceId: string): Promise<ActionResult> {
+  try {
+    const { workspace } = await assertWorkspace(uuid.parse(workspaceId), "workspace.view");
+    const r = await syncWorkspaceSheet({ id: workspace.id, sheetId: workspace.sheetId });
+    refresh();
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
   } catch (e) {
     return fail(e);
   }

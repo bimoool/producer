@@ -8,8 +8,11 @@ import { cn } from "@/lib/utils";
 export function ProjectTabs({ slug, manage }: { slug: string; manage: boolean }) {
   const pathname = usePathname();
   const tabs = [
-    { href: `/projects/${slug}/dashboard`, label: "Дашборд" },
+    { href: `/projects/${slug}/dashboard`, label: "Обзор" },
     { href: `/projects/${slug}/content`, label: "Контент-план" },
+    { href: `/projects/${slug}/lab`, label: "Лаборатория" },
+    { href: `/projects/${slug}/analytics`, label: "Аналитика" },
+    { href: `/projects/${slug}/hypotheses`, label: "Гипотезы и цели" },
     ...(manage
       ? [
           { href: `/projects/${slug}/members`, label: "Участники" },

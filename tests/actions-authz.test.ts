@@ -143,6 +143,16 @@ d("права в Server Actions", () => {
     expect(await ws.setUserBlocked(owner.id, true)).toEqual({ ok: false, error: "Нельзя отключить единственного владельца" });
   });
 
+  it("«Обновить данные»: только для тех, кто видит проект", async () => {
+    currentToken = f.tokens.vera;
+    expect(await ws.refreshSheet(f.ws["my-content"])).toEqual({ ok: false, error: "Нет доступа" });
+    // свой проект — доступ есть (дальше — ответ интеграции, а не отказ в правах)
+    const own = await ws.refreshSheet(f.ws.vera);
+    expect(own).not.toEqual({ ok: false, error: "Нет доступа" });
+    currentToken = undefined;
+    expect(await ws.refreshSheet(f.ws.vera)).toEqual({ ok: false, error: "Нет доступа" });
+  });
+
   it("редактор не может управлять даже своим проектом", async () => {
     currentToken = f.tokens.editor;
     expect(await ws.saveWorkspaceSheet(null, form({ workspaceId: f.ws.vera, sheetUrl: "" }))).toEqual({ ok: false, error: "Нет доступа" });

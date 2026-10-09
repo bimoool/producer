@@ -64,6 +64,20 @@
       "when": 1791557730446,
       "tag": "0008_producer_os_seed_and_log",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791568786511,
+      "tag": "0009_sheet_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791568787440,
+      "tag": "0010_vera_sheet_link",
+      "breakpoints": true
     }
   ]
 }
