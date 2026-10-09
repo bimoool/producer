@@ -48,17 +48,17 @@ export function MobileNav() {
   const pathname = usePathname();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden">
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {NAV.map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <li key={item.href}>
               <Link
                 href={item.href}
-                className={`flex flex-col items-center gap-0.5 py-2 text-[11px] ${active ? "text-foreground" : "text-muted-foreground"}`}
+                className={`flex flex-col items-center gap-0.5 py-2 text-[10px] leading-tight ${active ? "text-foreground" : "text-muted-foreground"}`}
               >
                 <item.icon className="size-5" />
-                {item.label}
+                <span className="max-w-full truncate px-0.5">{item.label}</span>
               </Link>
             </li>
           );

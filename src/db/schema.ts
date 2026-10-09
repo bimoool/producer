@@ -25,6 +25,8 @@ export const declarations = pgTable("declarations", {
   title: text("title").notNull(),
   declaredOn: date("declared_on").notNull(),
   cycleStart: date("cycle_start").notNull(),
+  // Конец периода декларации. Задаётся один раз, затем неизменяем (триггер).
+  endsOn: date("ends_on"),
   priceOfWord: integer("price_of_word"),
   reward: text("reward"),
   financialHypothesis: text("financial_hypothesis"),
@@ -178,14 +180,53 @@ export const weeklyReports = pgTable(
     weekNumber: integer("week_number").notNull(),
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
+    // draft → final → sent. После sent запись заморожена (триггер).
     status: text("status").notNull().default("draft"),
     fields: jsonb("fields").notNull(),
-    content: text("content").notNull(),
+    // Текст, собранный генератором из fields (для черновиков).
+    content: text("content"),
+    // Точный текст, отправленный наставнику. Хранится как есть, без переписывания.
+    originalText: text("original_text"),
+    // Подтверждённые пользователем факты (для импортированных отчётов).
+    facts: jsonb("facts"),
+    sentOn: date("sent_on"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     unique("weekly_reports_period_unique").on(t.periodStart),
-    check("weekly_reports_status_check", sql`${t.status} in ('draft','final')`),
+    check("weekly_reports_status_check", sql`${t.status} in ('draft','final','sent')`),
+    check("weekly_reports_sent_has_date", sql`${t.status} <> 'sent' or ${t.sentOn} is not null`),
+  ],
+);
+
+/**
+ * Сделки и деньги. Фактические (paid) и потенциальные (potential/expected)
+ * никогда не суммируются вместе.
+ */
+export const deals = pgTable(
+  "deals",
+  {
+    id: id(),
+    client: text("client").notNull(),
+    title: text("title").notNull(),
+    // one_time — разовая сделка, monthly — ежемесячный контракт
+    kind: text("kind").notNull().default("one_time"),
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull().default("RUB"),
+    // paid — деньги получены; expected — договорились, ждём оплату;
+    // potential — предложение сделано; lost — отказ
+    status: text("status").notNull().default("potential"),
+    personalProfit: integer("personal_profit"),
+    expectedBy: text("expected_by"),
+    paidOn: date("paid_on"),
+    note: text("note"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check("deals_kind_check", sql`${t.kind} in ('one_time','monthly')`),
+    check("deals_status_check", sql`${t.status} in ('paid','expected','potential','lost')`),
+    check("deals_amount_check", sql`${t.amount} >= 0`),
   ],
 );

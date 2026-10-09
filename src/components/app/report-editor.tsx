@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { saveReport } from "@/app/actions";
+import { markReportSent, saveReport } from "@/app/actions";
+import { ConfirmAction } from "@/components/app/confirm-delete";
 import { CopyButton } from "@/components/app/copy-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -257,6 +258,27 @@ export function ReportEditor({
         <Button type="button" disabled={pending} onClick={() => save("final")}>
           Отчёт готов
         </Button>
+        {id && !dirty ? (
+          <ConfirmAction
+            title="Отметить отправленным?"
+            description="Текст будет заморожен ровно в текущем виде — как вы его скопировали. Изменить отчёт потом будет нельзя."
+            confirmLabel="Отправлен"
+            onConfirm={() =>
+              start(async () => {
+                const r = await markReportSent(id);
+                if (r.ok) {
+                  toast.success("Отчёт отмечен отправленным");
+                  router.refresh();
+                } else toast.error(r.error);
+              })
+            }
+            trigger={
+              <Button type="button" variant="ghost" disabled={pending}>
+                Отправлен наставнику
+              </Button>
+            }
+          />
+        ) : null}
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ import { getDb, schema } from "@/db";
 import { addDaysISO, todayISO } from "@/lib/domain/dates";
 import { renderReport, reportFieldsSchema, type ReportFields, type ReportPeriod } from "@/lib/domain/report";
 
-const { declarationItems, goals, progressUpdates, tasks, taskComments, weeklyReports } = schema;
+const { declarationItems, deals, goals, progressUpdates, tasks, taskComments, weeklyReports } = schema;
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -45,7 +45,7 @@ function fd(form: FormData): Record<string, string> {
 function fail(e: unknown): ActionResult {
   if (e instanceof z.ZodError) return { ok: false, error: e.issues.map((i) => i.message).join("; ") };
   const msg = e instanceof Error ? e.message : String(e);
-  const locked = /DECLARATION_LOCKED|APPEND_ONLY/.exec(msg);
+  const locked = /DECLARATION_LOCKED|APPEND_ONLY|REPORT_SENT/.exec(msg);
   return { ok: false, error: locked ? msg.slice(msg.indexOf(":") + 1).trim() : "Не удалось сохранить" };
 }
 
@@ -284,6 +284,98 @@ export async function saveReport(input: {
       .returning({ id: weeklyReports.id });
     refresh();
     return { ok: true, id: row.id };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Отметить сохранённый отчёт отправленным: текст замораживается ровно в том виде, в каком был скопирован. */
+export async function markReportSent(id: string): Promise<ActionResult> {
+  try {
+    const reportId = uuid.parse(id);
+    const db = getDb();
+    const [r] = await db.select().from(weeklyReports).where(eq(weeklyReports.id, reportId));
+    if (!r) return { ok: false, error: "Отчёт не найден" };
+    if (r.status === "sent") return { ok: true, id: reportId };
+    await db
+      .update(weeklyReports)
+      .set({ status: "sent", sentOn: todayISO(), originalText: r.content })
+      .where(eq(weeklyReports.id, reportId));
+    refresh();
+    return { ok: true, id: reportId };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+const importSchema = z.object({
+  reportId: uuid,
+  originalText: z.string().max(50000).refine((v) => v.trim().length > 0, "Вставьте текст отчёта"),
+});
+
+/** Импорт точного текста отправленного отчёта. Текст сохраняется как есть (только переводы строк приводятся к \n). */
+export async function importReportText(_: unknown, form: FormData): Promise<ActionResult> {
+  try {
+    const input = importSchema.parse(fd(form));
+    const db = getDb();
+    const [r] = await db.select().from(weeklyReports).where(eq(weeklyReports.id, input.reportId));
+    if (!r) return { ok: false, error: "Отчёт не найден" };
+    if (r.originalText !== null) return { ok: false, error: "Текст уже импортирован и не изменяется" };
+    await db
+      .update(weeklyReports)
+      .set({ originalText: input.originalText.replace(/\r\n?/g, "\n") })
+      .where(eq(weeklyReports.id, input.reportId));
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Сделки ----------
+
+const money = z
+  .string()
+  .transform((v) => v.replace(/[\s ₽]/g, "").replace(",", "."))
+  .transform((v) => Number(v))
+  .pipe(z.number({ error: "Сумма — число" }).int("Сумма — целое число рублей").min(0));
+const optMoney = z
+  .string()
+  .optional()
+  .transform((v) => (v === undefined || v.trim() === "" ? null : Number(v.replace(/[\s ₽]/g, "").replace(",", "."))))
+  .pipe(z.number().int().min(0).nullable());
+
+const dealSchema = z.object({
+  id: z.string().optional(),
+  client: z.string().trim().min(1, "Укажите клиента").max(200),
+  title: z.string().trim().min(1, "Укажите услугу").max(300),
+  kind: z.enum(["one_time", "monthly"]),
+  amount: money,
+  status: z.enum(["paid", "expected", "potential", "lost"]),
+  personalProfit: optMoney,
+  expectedBy: optText,
+  paidOn: optDate,
+  note: optText,
+});
+
+export async function saveDeal(_: unknown, form: FormData): Promise<ActionResult> {
+  try {
+    const { id, ...input } = dealSchema.parse(fd(form));
+    const db = getDb();
+    if (id) await db.update(deals).set(input).where(eq(deals.id, uuid.parse(id)));
+    else await db.insert(deals).values(input);
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteDeal(id: string): Promise<ActionResult> {
+  try {
+    await getDb().delete(deals).where(eq(deals.id, uuid.parse(id)));
+    refresh();
+    return { ok: true };
   } catch (e) {
     return fail(e);
   }

@@ -10,17 +10,21 @@ export async function buildCurrentReport(day = todayISO()): Promise<{
   fields: ReportFields;
   text: string;
   savedId: string | null;
+  status: string | null;
 }> {
   const decl = await getDeclaration();
   const period = reportPeriodFor(day, decl?.cycleStart ?? DEFAULT_CYCLE_START);
   const existing = await getReportByPeriod(period.periodStart);
   if (existing) {
-    return { period, fields: existing.fields as ReportFields, text: existing.content, savedId: existing.id };
+    const text =
+      existing.status === "sent"
+        ? (existing.originalText ?? "Отчёт отправлен наставнику. Точный текст ещё не импортирован в систему.")
+        : (existing.content ?? "");
+    return { period, fields: existing.fields as ReportFields, text, savedId: existing.id, status: existing.status };
   }
-  const reportDay = addDaysISO(period.periodEnd, 1);
   const [done, next] = await Promise.all([
     tasksCompletedBetween(period.periodStart, period.periodEnd),
-    openTasksDueBetween(reportDay, addDaysISO(reportDay, 7)),
+    openTasksDueBetween(addDaysISO(period.periodEnd, 1), addDaysISO(period.periodEnd, 7)),
   ]);
   const fields = prefillReport({
     items: (decl?.items ?? []).map((i) => ({
@@ -35,5 +39,5 @@ export async function buildCurrentReport(day = todayISO()): Promise<{
     nextWeekTaskTitles: next.map((t) => t.title),
     periodEnd: period.periodEnd,
   });
-  return { period, fields, text: renderReport(period, fields), savedId: null };
+  return { period, fields, text: renderReport(period, fields), savedId: null, status: null };
 }

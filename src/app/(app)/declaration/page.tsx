@@ -39,7 +39,8 @@ export default async function DeclarationPage() {
               </div>
             ) : null}
             <div className="text-muted-foreground">
-              Дата декларации: {formatRu(decl.declaredOn)} · Отсчёт недель с {formatRu(decl.cycleStart)}
+              Период: {formatRu(decl.declaredOn)}–{decl.endsOn ? formatRu(decl.endsOn) : "срок не указан"} · Отсчёт недель с{" "}
+              {formatRu(decl.cycleStart)}
             </div>
           </CardContent>
         </Card>

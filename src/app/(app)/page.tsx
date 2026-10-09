@@ -14,11 +14,13 @@ import {
   getReportByPeriod,
   getTaskBuckets,
   goalTitleMap,
+  listDeals,
   listGoals,
   recentActivity,
   type Task,
 } from "@/lib/data";
 import { formatRu, todayISO, weekdayISO } from "@/lib/domain/dates";
+import { rub, summarizeDeals } from "@/lib/domain/finance";
 import { computeProgress, formatProgress } from "@/lib/domain/progress";
 import { reportPeriodFor } from "@/lib/domain/report";
 
@@ -26,14 +28,16 @@ const MAX = 5;
 
 export default async function Dashboard() {
   const today = todayISO();
-  const [decl, buckets, goals, activity, opts, goalTitles] = await Promise.all([
+  const [decl, buckets, goals, activity, opts, goalTitles, deals] = await Promise.all([
     getDeclaration(),
     getTaskBuckets(today),
     listGoals(),
     recentActivity(6),
     getLinkOptions(),
     goalTitleMap(),
+    listDeals(),
   ]);
+  const money = summarizeDeals(deals);
   const period = reportPeriodFor(today, decl?.cycleStart ?? "2026-10-02");
   const report = period.weekNumber >= 1 ? await getReportByPeriod(period.periodStart) : null;
   const isFriday = weekdayISO(today) === 5;
@@ -100,8 +104,10 @@ export default async function Dashboard() {
 
       {decl ? (
         <section className="grid gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground">Что я обещал · {decl.title}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-muted-foreground">
+              Что я обещал · {formatRu(decl.declaredOn)}–{decl.endsOn ? formatRu(decl.endsOn) : "срок не указан"}
+            </h2>
             <Link href="/declaration" className="text-sm text-muted-foreground hover:text-foreground">
               Обновить <ArrowRightIcon className="inline size-3.5" />
             </Link>
@@ -142,6 +148,31 @@ export default async function Dashboard() {
           </div>
         </section>
       ) : null}
+
+      <section className="grid gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Деньги</h2>
+          <Link href="/finance" className="text-sm text-muted-foreground hover:text-foreground">
+            Подробнее <ArrowRightIcon className="inline size-3.5" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Card>
+            <CardHeader>
+              <CardDescription>Личная прибыль (факт)</CardDescription>
+              <CardTitle className="text-xl whitespace-nowrap tabular-nums sm:text-2xl">{rub(money.actual.personalProfit)}</CardTitle>
+              <CardDescription className="whitespace-nowrap">выручка {rub(money.actual.revenue)}</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Потенциал (не факт)</CardDescription>
+              <CardTitle className="text-xl whitespace-nowrap tabular-nums sm:text-2xl">{rub(money.potential.oneTime)}</CardTitle>
+              <CardDescription>+ {rub(money.potential.monthly)}/мес</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </section>
 
       <section className="grid gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Задачи</h2>

@@ -3,7 +3,7 @@
  * входящие апдейты подаются через handleUpdate. Требует DATABASE_URL.
  */
 import postgres from "postgres";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { createBot } from "@/bot/bot";
 
 const url = process.env.DATABASE_URL;
@@ -67,10 +67,27 @@ d("telegram bot", () => {
     expect(texts()[0]).toMatch(/Пилот YouTube: (Прогресс не подтверждён|\d)/);
   });
 
-  it("/report отдаёт отчёт по форме", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("/report в день отправленного отчёта не выдумывает текст", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-09T10:00:00+05:00") });
     const { msg, texts } = setup();
     await msg(OWNER, "/report");
-    expect(texts().join("\n")).toContain("1. Статус по декларации");
+    const out = texts().join("\n");
+    expect(out).toContain("уже отправлен");
+    expect(out).toContain("не импортирован");
+    expect(out).not.toContain("1. Статус по декларации");
+  });
+
+  it("/report в следующую пятницу — черновик по форме", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-16T10:00:00+05:00") });
+    const { msg, texts } = setup();
+    await msg(OWNER, "/report");
+    const out = texts().join("\n");
+    expect(out).toContain("ОТЧЁТ ЗА 2 НЕДЕЛЮ\nПериод: 10.10.2026–16.10.2026");
+    expect(out).toContain("2) Провести 3 встречи по упаковке и запуску YouTube-канала. — частично; 2 из 3 встречи (67%)");
   });
 
   it("свободный текст → предложение → сохраняется только после подтверждения", async () => {

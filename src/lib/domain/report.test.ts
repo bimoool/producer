@@ -8,33 +8,38 @@ const items = [
 ];
 
 describe("reportPeriodFor", () => {
-  it("первый отчёт 09.10.2026 — неделя 1, 02.10–08.10", () => {
+  it("первый отчёт 09.10.2026 — неделя 1, 02.10–09.10 (как отправленный)", () => {
     expect(reportPeriodFor("2026-10-09", "2026-10-02")).toEqual({
       weekNumber: 1,
       periodStart: "2026-10-02",
-      periodEnd: "2026-10-08",
+      periodEnd: "2026-10-09",
     });
   });
-  it("в субботу и четверг указывает на последнюю пятницу", () => {
+  it("до пятницы — всё ещё последняя прошедшая неделя", () => {
     expect(reportPeriodFor("2026-10-10", "2026-10-02").weekNumber).toBe(1);
     expect(reportPeriodFor("2026-10-15", "2026-10-02").weekNumber).toBe(1);
+  });
+  it("неделя 2: суббота–пятница 10.10–16.10", () => {
     expect(reportPeriodFor("2026-10-16", "2026-10-02")).toEqual({
       weekNumber: 2,
-      periodStart: "2026-10-09",
-      periodEnd: "2026-10-15",
+      periodStart: "2026-10-10",
+      periodEnd: "2026-10-16",
     });
+  });
+  it("до первой пятницы отчёта ещё нет", () => {
+    expect(reportPeriodFor("2026-10-05", "2026-10-02").weekNumber).toBeLessThan(1);
   });
 });
 
 describe("isLastReportOfMonth", () => {
   it("09.10 — не последний, 30.10 — последний", () => {
-    expect(isLastReportOfMonth("2026-10-08")).toBe(false);
-    expect(isLastReportOfMonth("2026-10-29")).toBe(true);
+    expect(isLastReportOfMonth("2026-10-09")).toBe(false);
+    expect(isLastReportOfMonth("2026-10-30")).toBe(true);
   });
 });
 
 describe("prefillReport", () => {
-  const f = prefillReport({ items, completedTaskTitles: [], nextWeekTaskTitles: ["Позвонить"], periodEnd: "2026-10-08" });
+  const f = prefillReport({ items, completedTaskTitles: [], nextWeekTaskTitles: ["Позвонить"], periodEnd: "2026-10-09" });
 
   it("неизвестный статус → требует подтверждения, а не «не выполнено»", () => {
     expect(f.declaration[0].status).toBe("unconfirmed");
@@ -56,7 +61,7 @@ describe("renderReport", () => {
   it("строгая структура и пустые поля для заполнения", () => {
     const period = reportPeriodFor("2026-10-09", "2026-10-02");
     const text = renderReport(period, prefillReport({ items, completedTaskTitles: [], nextWeekTaskTitles: [], periodEnd: period.periodEnd }));
-    expect(text.startsWith("ОТЧЁТ ЗА 1 НЕДЕЛЮ\nПериод: 02.10.2026–08.10.2026")).toBe(true);
+    expect(text.startsWith("ОТЧЁТ ЗА 1 НЕДЕЛЮ\nПериод: 02.10.2026–09.10.2026")).toBe(true);
     expect(text).toContain("1) Провести 15 кастдевов — Требует подтверждения");
     expect(text).toContain("2) Провести 3 встречи — в процессе; 1 из 3 встречи (33%)");
     expect(text).toContain("Фокус:\n");
@@ -67,13 +72,13 @@ describe("renderReport", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
   it("пустые данные не ломают отчёт", () => {
-    const text = renderReport({ weekNumber: 1, periodStart: "2026-10-02", periodEnd: "2026-10-08" }, reportFieldsSchema.parse({}));
+    const text = renderReport({ weekNumber: 1, periodStart: "2026-10-02", periodEnd: "2026-10-09" }, reportFieldsSchema.parse({}));
     expect(text).toContain("Требует подтверждения");
     expect(text).toContain("Оценка:");
   });
   it("финансы выводятся, когда включены", () => {
     const f = reportFieldsSchema.parse({ includeFinance: true, finance: { revenue: "100 000 ₽" }, stateScore: 7, stateWhy: "нормально" });
-    const text = renderReport({ weekNumber: 4, periodStart: "2026-10-23", periodEnd: "2026-10-29" }, f);
+    const text = renderReport({ weekNumber: 5, periodStart: "2026-10-24", periodEnd: "2026-10-30" }, f);
     expect(text).toContain("Выручка: 100 000 ₽");
     expect(text).toContain("Оценка: 7/10 — нормально");
   });

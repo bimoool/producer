@@ -19,6 +19,10 @@ const FIELD_LABELS: Record<string, string> = {
   value: "значение",
   fields: "поля",
   content: "текст",
+  amount: "сумма",
+  personal_profit: "личная прибыль",
+  original_text: "оригинал отчёта",
+  client: "клиент",
 };
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -29,6 +33,7 @@ const ENTITY_LABELS: Record<string, string> = {
   progress_updates: "Прогресс",
   task_comments: "Комментарий",
   weekly_reports: "Отчёт",
+  deals: "Сделка",
 };
 
 export type LogEntry = {
@@ -42,7 +47,14 @@ export type LogEntry = {
 export function describeEntry(e: LogEntry): string {
   const entity = ENTITY_LABELS[e.entityType] ?? e.entityType;
   const ch = (e.changes ?? {}) as Record<string, unknown>;
-  const name = typeof ch.title === "string" ? ` «${ch.title}»` : typeof ch.short_title === "string" ? ` «${ch.short_title}»` : "";
+  const name =
+    typeof ch.client === "string" && typeof ch.title === "string"
+      ? ` «${ch.client}: ${ch.title}»`
+      : typeof ch.title === "string"
+        ? ` «${ch.title}»`
+        : typeof ch.short_title === "string"
+          ? ` «${ch.short_title}»`
+          : "";
   if (e.action === "create") {
     if (e.entityType === "progress_updates") return `Прогресс обновлён: ${String(ch.value)}`;
     if (e.entityType === "task_comments") return "Добавлен комментарий";

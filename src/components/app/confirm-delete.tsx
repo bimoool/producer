@@ -12,6 +12,36 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+export function ConfirmAction({
+  trigger,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+}: {
+  trigger: React.ReactNode;
+  title: string;
+  description?: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description ? <AlertDialogDescription>{description}</AlertDialogDescription> : null}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Отмена</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>{confirmLabel}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function ConfirmDelete({
   trigger,
   title,

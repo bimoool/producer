@@ -43,23 +43,24 @@ export type ReportFields = z.infer<typeof reportFieldsSchema>;
 export type ReportPeriod = { weekNumber: number; periodStart: string; periodEnd: string };
 
 /**
- * Отчётная неделя: с пятницы по четверг. Отчёт составляется в пятницу
- * за 7 предыдущих дней. Неделя 1 начинается в cycleStart.
+ * Отчётная неделя заканчивается в пятницу включительно (день отчёта).
+ * Неделя 1: от начала цикла до первой пятницы после него
+ * (для цикла с 02.10.2026 — 02.10–09.10, как в отправленном отчёте).
+ * Далее — суббота…пятница.
  */
 export function reportPeriodFor(reportDay: string, cycleStart: string): ReportPeriod {
-  // ближайшая пятница не позже reportDay
   const back = (weekdayISO(reportDay) - 5 + 7) % 7;
   const friday = addDaysISO(reportDay, -back);
-  const periodStart = addDaysISO(friday, -7);
-  const periodEnd = addDaysISO(friday, -1);
-  const weekNumber = Math.floor(diffDaysISO(periodStart, cycleStart) / 7) + 1;
-  return { weekNumber, periodStart, periodEnd };
+  const toFirstFriday = (5 - weekdayISO(cycleStart) + 7) % 7 || 7;
+  const firstFriday = addDaysISO(cycleStart, toFirstFriday);
+  const weekNumber = Math.floor(diffDaysISO(friday, firstFriday) / 7) + 1;
+  const periodStart = weekNumber === 1 ? cycleStart : addDaysISO(friday, -6);
+  return { weekNumber, periodStart, periodEnd: friday };
 }
 
 /** Последний отчёт месяца: следующая пятница уже в другом месяце. */
 export function isLastReportOfMonth(periodEnd: string): boolean {
-  const reportDay = addDaysISO(periodEnd, 1);
-  return addDaysISO(reportDay, 7).slice(0, 7) !== reportDay.slice(0, 7);
+  return addDaysISO(periodEnd, 7).slice(0, 7) !== periodEnd.slice(0, 7);
 }
 
 export type DeclarationItemInput = {

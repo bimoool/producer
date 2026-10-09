@@ -80,7 +80,12 @@ export function createBot(token: string, allowed: Set<number>, botInfo?: UserFro
 
   bot.command("report", async (ctx) => {
     const r = await buildCurrentReport();
-    const header = r.savedId ? "Сохранённый отчёт (проверьте перед отправкой наставнику):" : "Черновик отчёта (ещё не сохранён — заполните на сайте):";
+    const header =
+      r.status === "sent"
+        ? `Отчёт за ${r.period.weekNumber} неделю уже отправлен наставнику.`
+        : r.savedId
+          ? "Сохранённый отчёт (проверьте перед отправкой наставнику):"
+          : "Черновик отчёта (ещё не сохранён — заполните на сайте):";
     for (const part of splitMessage(`${header}\n\n${r.text}`)) await ctx.reply(part);
   });
 

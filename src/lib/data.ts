@@ -2,13 +2,14 @@ import { and, asc, desc, eq, gte, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { addDaysISO, todayISO } from "@/lib/domain/dates";
 
-const { declarations, declarationItems, goals, projects, tasks, taskComments, activityLog, progressUpdates, weeklyReports } =
+const { declarations, declarationItems, goals, projects, tasks, taskComments, activityLog, progressUpdates, weeklyReports, deals } =
   schema;
 
 export type Task = typeof tasks.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
 export type DeclarationItem = typeof declarationItems.$inferSelect;
 export type WeeklyReport = typeof weeklyReports.$inferSelect;
+export type Deal = typeof deals.$inferSelect;
 
 export async function getDeclaration() {
   const db = getDb();
@@ -144,4 +145,11 @@ export async function getLinkOptions() {
 export async function goalTitleMap() {
   const rows = await listGoals();
   return new Map(rows.map((g) => [g.id, g.title]));
+}
+
+export async function listDeals() {
+  return getDb()
+    .select()
+    .from(deals)
+    .orderBy(sql`case ${deals.status} when 'paid' then 0 when 'expected' then 1 when 'potential' then 2 else 3 end`, desc(deals.amount));
 }

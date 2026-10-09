@@ -38,15 +38,20 @@ export default async function ReportsPage() {
                     Неделя {r.weekNumber} · {formatRu(r.periodStart)}–{formatRu(r.periodEnd)}
                   </Link>
                 </CardTitle>
-                <Badge variant={r.status === "final" ? "default" : "secondary"}>
-                  {r.status === "final" ? "Готов" : "Черновик"}
-                </Badge>
+                <div className="flex flex-wrap justify-end gap-1">
+                  <Badge variant={r.status === "draft" ? "secondary" : "default"}>
+                    {r.status === "sent" ? "Отправлен" : r.status === "final" ? "Готов" : "Черновик"}
+                  </Badge>
+                  {r.status === "sent" && !r.originalText ? <Badge variant="outline">текст не импортирован</Badge> : null}
+                </div>
               </CardHeader>
               <CardContent className="flex gap-2">
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/reports/${r.id}`}>Открыть</Link>
                 </Button>
-                <CopyButton text={r.content} size="sm" label="Скопировать" />
+                {(r.status === "sent" ? r.originalText : r.content) ? (
+                  <CopyButton text={(r.status === "sent" ? r.originalText : r.content) ?? ""} size="sm" label="Скопировать" />
+                ) : null}
               </CardContent>
             </Card>
           ))}
