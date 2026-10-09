@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { appUrl } from "@/lib/app-origin";
 import { clientIp, loginLimiter } from "@/lib/limiter";
 import { SESSION_COOKIE, validateSession } from "@/lib/session";
 import { authConfig } from "@/lib/telegram-auth";
@@ -29,7 +30,7 @@ export async function proxy(request: NextRequest) {
     }
   }
   const isPage = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
-  if (isPage) return NextResponse.redirect(new URL("/login", request.nextUrl.origin), 303);
+  if (isPage) return NextResponse.redirect(appUrl("/login"), 303);
   return new NextResponse("Unauthorized", { status: 401 });
 }
 
