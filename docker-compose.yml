@@ -1,0 +1,55 @@
+# Goal Tracker: Postgres + веб + бот. Порты наружу не публикуются, веб — только на 127.0.0.1
+# (наружу его отдаёт существующий reverse proxy с HTTPS).
+name: goaltracker
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: goaltracker
+      POSTGRES_USER: goal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Yekaterinburg
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goal -d goaltracker"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: { context: ., target: tools }
+    environment:
+      DATABASE_URL: postgres://goal:${POSTGRES_PASSWORD}@db:5432/goaltracker
+    command: ["npx", "tsx", "src/db/migrate.ts"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  web:
+    build: { context: ., target: web }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://goal:${POSTGRES_PASSWORD}@db:5432/goaltracker
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?set BASIC_AUTH_USER in .env}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3100}:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  bot:
+    build: { context: ., target: tools }
+    restart: unless-stopped
+    profiles: ["bot"]
+    environment:
+      DATABASE_URL: postgres://goal:${POSTGRES_PASSWORD}@db:5432/goaltracker
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}  # бот не стартует с пустыми значениями
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
