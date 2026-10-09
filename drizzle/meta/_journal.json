@@ -43,6 +43,13 @@
       "when": 1791527101568,
       "tag": "0005_real_data_2026_10_09",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791536642123,
+      "tag": "0006_sessions",
+      "breakpoints": true
     }
   ]
 }

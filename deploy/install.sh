@@ -46,11 +46,12 @@ CADDY
   systemctl reload caddy
   say "Жду сертификат (до 60 с)"
   for i in $(seq 1 30); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/" || true)
-    [ "$code" = 401 ] && break
+    code=$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/login" || true)
+    [ "$code" = 200 ] && break
     sleep 2
   done
-  echo "https://$DOMAIN/ → HTTP $code (ожидается 401: сайт закрыт паролем)"
+  echo "https://$DOMAIN/login → HTTP $code (ожидается 200)"
+  echo "https://$DOMAIN/ без входа → HTTP $(curl -s -o /dev/null -w '%{http_code}' -H 'Accept: text/html' "https://$DOMAIN/") (ожидается 303 на /login)"
   echo "health: $(curl -s "https://$DOMAIN/api/health")"
   exit 0
 fi
@@ -68,11 +69,10 @@ touch .env
 chmod 600 .env
 has() { grep -q "^$1=." .env; }
 has POSTGRES_PASSWORD || echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
-has BASIC_AUTH_USER || echo "BASIC_AUTH_USER=bim" >> .env
-if ! has BASIC_AUTH_PASSWORD; then
-  echo "BASIC_AUTH_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)" >> .env
-  echo "Создан пароль для входа на сайт. Посмотреть его: ssh ... 'grep BASIC_AUTH /opt/goaltracker/.env'"
-fi
+grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env || { sed -i '/^TELEGRAM_ALLOWED_USER_IDS=/d' .env; echo "TELEGRAM_ALLOWED_USER_IDS=65107390" >> .env; }
+# Basic Auth больше не используется: удаляем старые значения.
+sed -i '/^BASIC_AUTH_USER=/d; /^BASIC_AUTH_PASSWORD=/d' .env
+has TELEGRAM_BOT_TOKEN || echo "ВНИМАНИЕ: нет TELEGRAM_BOT_TOKEN — сайт запустится, но вход будет закрыт"
 
 say "Сборка образов по одному (экономия памяти)"
 export COMPOSE_PARALLEL_LIMIT=1

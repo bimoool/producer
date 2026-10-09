@@ -1,42 +1,38 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { checkBasicAuth } from "@/lib/auth";
-import { FailureLimiter } from "@/lib/rate-limit";
+import { clientIp, loginLimiter } from "@/lib/limiter";
+import { SESSION_COOKIE, validateSession } from "@/lib/session";
+import { authConfig } from "@/lib/telegram-auth";
 
-// 10 неудачных попыток с IP или 50 со всех IP за 15 минут → блокировка.
-const limiter = new FailureLimiter({ maxPerKey: 10, maxGlobal: 50, windowMs: 15 * 60_000 });
+const PUBLIC = new Set(["/login", "/auth/telegram/callback", "/auth/logout", "/api/health"]);
 
-function clientIp(request: NextRequest): string {
-  // Приложение слушает только 127.0.0.1, X-Real-IP выставляет nginx.
-  return request.headers.get("x-real-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-}
-
-/** Весь сайт закрыт HTTP Basic Auth. Без настроенных учётных данных доступ запрещён. */
-export function proxy(request: NextRequest) {
-  const ip = clientIp(request);
-  const wait = limiter.blockedFor(ip);
+/**
+ * Каждая страница, server action и API (кроме PUBLIC) требует действующую
+ * серверную сессию: cookie → SHA-256 → запись в БД, не отозвана, не истекла,
+ * Telegram ID в allowlist. Без настроенного входа доступ закрыт.
+ */
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const ip = clientIp(request.headers);
+  const wait = loginLimiter.blockedFor(ip);
   if (wait > 0) {
-    return new NextResponse("Too many failed attempts", {
-      status: 429,
-      headers: { "Retry-After": String(Math.ceil(wait / 1000)) },
-    });
+    return new NextResponse("Too many failed attempts", { status: 429, headers: { "Retry-After": String(Math.ceil(wait / 1000)) } });
   }
-  const header = request.headers.get("authorization");
-  const result = checkBasicAuth(header, {
-    user: process.env.BASIC_AUTH_USER,
-    password: process.env.BASIC_AUTH_PASSWORD,
-  });
-  if (result === "ok") {
-    limiter.succeed(ip);
-    return NextResponse.next();
+  if (PUBLIC.has(pathname)) return NextResponse.next();
+
+  const cfg = authConfig();
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (cfg && token) {
+    try {
+      if (await validateSession(token, cfg.allowed)) return NextResponse.next();
+    } catch {
+      return new NextResponse("Service unavailable", { status: 503 });
+    }
   }
-  // Запрос без заголовка — это первый заход браузера, не попытка подбора.
-  if (result === "denied" && header) limiter.fail(ip);
-  return new NextResponse(result === "misconfigured" ? "Auth is not configured" : "Unauthorized", {
-    status: 401,
-    headers: result === "misconfigured" ? {} : { "WWW-Authenticate": 'Basic realm="Goal Tracker", charset="UTF-8"' },
-  });
+  const isPage = request.method === "GET" && (request.headers.get("accept") ?? "").includes("text/html");
+  if (isPage) return NextResponse.redirect(new URL("/login", request.nextUrl.origin), 303);
+  return new NextResponse("Unauthorized", { status: 401 });
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

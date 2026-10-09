@@ -1,75 +1,57 @@
 # Деплой Goal Tracker → https://producer.bimoool.com
 
-## Одна команда (Mac)
+Сервер: Caddy на хосте (80/443, автоматический HTTPS), приложение — Docker Compose-проект
+`goaltracker` на `127.0.0.1:3100`. Вход — только через Telegram, только ID 65107390.
+
+## Одна команда (веб-консоль DigitalOcean, root)
 
 ```bash
-grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' ~/Downloads/envproducer.txt | head -1 | ssh -i ~/.ssh/vps_deploy -o IdentitiesOnly=yes root@192.241.141.47 'cd /opt/goaltracker && git pull -q --ff-only </dev/null && bash deploy/go.sh'
+cd /opt/goaltracker && git pull --ff-only && bash deploy/go.sh
 ```
 
-Делает `deploy/go.sh`: токен → `.env` (600, без вывода), allowlist 65107390 →
-сборка и запуск на 127.0.0.1:3100 → блок сайта в Caddyfile (копия, `caddy validate`,
-`systemctl reload caddy`) → бот (его ошибка сайт не блокирует). Повторный запуск безопасен.
+- Если в `/opt/goaltracker/.env` ещё нет `TELEGRAM_BOT_TOKEN`, команда спросит его скрытым вводом.
+  Токен из Claude Code Cloud на сервер **не попадает** — его нужно вставить здесь один раз.
+- Дальше: сборка образов по одному (5–15 минут на 2 ГБ RAM) → миграции → веб →
+  блок `producer.bimoool.com` в Caddyfile (резервная копия, `caddy validate`,
+  `systemctl reload caddy`; при ошибке Caddyfile восстанавливается) → бот.
+- Повторный запуск безопасен: `.env` не перезаписывается, данные не дублируются,
+  чужие контейнеры и сайты не трогаются.
 
-Пароль входа (логин `bim`): `ssh -i ~/.ssh/vps_deploy -o IdentitiesOnly=yes root@192.241.141.47 'grep ^BASIC_AUTH_PASSWORD= /opt/goaltracker/.env'`
+## Один раз в Telegram (без этого кнопка входа не работает)
 
----
+@BotFather → `/setdomain` → выбрать бота → `producer.bimoool.com`.
 
-Ниже — те же шаги по отдельности.
-
-Сервер 192.241.141.47: на хосте работает Caddy (порты 80/443, автоматический HTTPS).
-Приложение — Docker Compose-проект `goaltracker` (Postgres + веб + бот), веб слушает
-только `127.0.0.1:3100`. В Caddyfile добавляется один новый блок сайта; существующие
-блоки и чужие контейнеры не трогаются.
-
-Все команды — на Mac. Для краткости:
+## Проверка
 
 ```bash
-S="ssh -i ~/.ssh/vps_deploy -o IdentitiesOnly=yes root@192.241.141.47"
+bash /opt/goaltracker/deploy/verify.sh
 ```
 
-1. Код на сервер:
-   ```bash
-   $S 'git clone -b claude/funny-feynman-4wjyug https://github.com/bimoool/producer.git /opt/goaltracker || git -C /opt/goaltracker pull --ff-only'
-   ```
-2. Токен бота → `/opt/goaltracker/.env` (600), без вывода на экран:
-   ```bash
-   grep -oE '[0-9]{6,}:[A-Za-z0-9_-]{30,}' ~/Downloads/envproducer.txt | head -1 | $S 'umask 077; f=/opt/goaltracker/.env; touch $f; chmod 600 $f; read -r T; [ -n "$T" ] || { echo "токен не найден"; exit 1; }; sed -i "/^TELEGRAM_BOT_TOKEN=/d" $f; printf "TELEGRAM_BOT_TOKEN=%s\n" "$T" >> $f; echo "токен сохранён"'
-   ```
-   Telegram user ID (число от @userinfobot, не токен):
-   ```bash
-   $S 'f=/opt/goaltracker/.env; sed -i "/^TELEGRAM_ALLOWED_USER_IDS=/d" $f; echo "TELEGRAM_ALLOWED_USER_IDS=ВАШ_ID" >> $f'
-   ```
-3. Сборка и запуск (образы собираются по одному; 5–15 минут на 2 ГБ RAM):
-   ```bash
-   $S 'bash /opt/goaltracker/deploy/install.sh'
-   ```
-4. Домен в Caddy (резервная копия Caddyfile → добавление блока → `caddy validate` →
-   `systemctl reload caddy`; при ошибке валидации Caddyfile восстанавливается, reload не делается):
-   ```bash
-   $S 'bash /opt/goaltracker/deploy/install.sh --caddy'
-   ```
-5. Проверка: `bash deploy/verify.sh` (из локальной копии репозитория) и браузер на телефоне.
+## Как устроен вход
 
-Пароль входа на сайт (логин `bim`) генерируется на шаге 3 и хранится только в
-`/opt/goaltracker/.env`. Посмотреть: `$S 'grep ^BASIC_AUTH_PASSWORD= /opt/goaltracker/.env'`.
+- Официальный Telegram Login Widget → `/auth/telegram/callback`: подпись проверяется на
+  сервере (HMAC-SHA256 от токена бота), срок данных — 10 минут, каждая подпись — один раз.
+- Пускается только ID из `TELEGRAM_ALLOWED_USER_IDS` (65107390). Регистрации нет.
+- Сессия: случайный токен в cookie `__Host-gt_session` (HttpOnly, Secure, SameSite=Lax, 30 дней);
+  в БД — только его SHA-256. Каждая страница, действие и API проверяют сессию в БД.
+- «Выйти» отзывает сессию на сервере. Выход с чужого сайта отклоняется.
+- 10 неудачных попыток входа с IP (или 50 со всех) за 15 минут → блокировка на 15 минут.
+- Без токена или allowlist на сервере вход закрыт полностью.
 
 ## Обновление
 
-```bash
-$S 'cd /opt/goaltracker && git pull --ff-only && bash deploy/install.sh'
-```
-Данные в томе `goaltracker_pgdata`; миграции применяются один раз — без дублей.
+Та же команда: `cd /opt/goaltracker && git pull --ff-only && bash deploy/go.sh`.
 
 ## Откат Caddy
 
 ```bash
-$S 'ls /etc/caddy/Caddyfile.bak.*'      # выбрать копию
-$S 'cp -p /etc/caddy/Caddyfile.bak.<время> /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy'
+ls /etc/caddy/Caddyfile.bak.*
+cp -p /etc/caddy/Caddyfile.bak.<время> /etc/caddy/Caddyfile && caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 ```
 
 ## Резервные копии БД (ежедневно, 7 дней)
 
 ```bash
-$S 'mkdir -p /opt/goaltracker-backups && ( crontab -l 2>/dev/null | grep -v goaltracker-backups;
-  echo "15 3 * * * cd /opt/goaltracker && docker compose exec -T db pg_dump -U goal goaltracker | gzip > /opt/goaltracker-backups/goal-\$(date +\%F).sql.gz && find /opt/goaltracker-backups -name \"*.sql.gz\" -mtime +7 -delete" ) | crontab -'
+mkdir -p /opt/goaltracker-backups && ( crontab -l 2>/dev/null | grep -v goaltracker-backups;
+  echo '15 3 * * * cd /opt/goaltracker && docker compose exec -T db pg_dump -U goal goaltracker | gzip > /opt/goaltracker-backups/goal-$(date +\%F).sql.gz && find /opt/goaltracker-backups -name "*.sql.gz" -mtime +7 -delete' ) | crontab -
 ```

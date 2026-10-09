@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   check,
   date,
@@ -228,5 +229,26 @@ export const deals = pgTable(
     check("deals_kind_check", sql`${t.kind} in ('one_time','monthly')`),
     check("deals_status_check", sql`${t.status} in ('paid','expected','potential','lost')`),
     check("deals_amount_check", sql`${t.amount} >= 0`),
+  ],
+);
+
+/**
+ * Сессии входа через Telegram. В БД хранится только SHA-256 токена из cookie.
+ * login_hash — подпись Telegram, использованная для входа (повтор запрещён).
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: id(),
+    tokenHash: text("token_hash").notNull(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    loginHash: text("login_hash").notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("sessions_token_hash_unique").on(t.tokenHash),
+    unique("sessions_login_hash_unique").on(t.loginHash),
   ],
 );
