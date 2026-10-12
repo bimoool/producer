@@ -1,9 +1,11 @@
 /**
  * Чтение Google Sheets через сервисный аккаунт (только чтение).
- * Ключ — в переменной окружения, в репозитории не хранится:
+ * Ключ в репозитории не хранится. Источник (по приоритету):
+ *   GOOGLE_SERVICE_ACCOUNT_FILE — путь к JSON-файлу ключа (в Docker — read-only mount);
  *   GOOGLE_SERVICE_ACCOUNT_JSON — JSON ключа целиком или он же в base64.
  * Таблица должна быть открыта сервисному аккаунту с правом «Читатель».
  */
+import { readFileSync, statSync } from "node:fs";
 import { JWT } from "google-auth-library";
 import type { Rows } from "./table";
 
@@ -12,18 +14,42 @@ const API = "https://sheets.googleapis.com/v4/spreadsheets";
 
 export type ServiceAccount = { client_email: string; private_key: string };
 
-export function loadServiceAccount(raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON): ServiceAccount | null {
-  const v = raw?.trim();
-  if (!v) return null;
+function parseKey(text: string): ServiceAccount | null {
   try {
-    const json = v.startsWith("{") ? v : Buffer.from(v, "base64").toString("utf8");
-    const parsed = JSON.parse(json) as Partial<ServiceAccount>;
+    const parsed = JSON.parse(text) as Partial<ServiceAccount>;
     if (typeof parsed.client_email !== "string" || typeof parsed.private_key !== "string") return null;
     if (!parsed.private_key.includes("PRIVATE KEY")) return null;
     return { client_email: parsed.client_email, private_key: parsed.private_key };
   } catch {
+    // Текст ошибки JSON.parse может содержать фрагмент ключа — не логируем.
     return null;
   }
+}
+
+let fileCache: { path: string; mtimeMs: number; sa: ServiceAccount | null } | null = null;
+
+/** Ключ из файла; перечитывается, только если файл изменился. Содержимое не логируется. */
+export function loadServiceAccountFile(path: string): ServiceAccount | null {
+  try {
+    const { mtimeMs, size } = statSync(path);
+    if (size > 64 * 1024) return null;
+    if (fileCache && fileCache.path === path && fileCache.mtimeMs === mtimeMs) return fileCache.sa;
+    const sa = parseKey(readFileSync(path, "utf8"));
+    fileCache = { path, mtimeMs, sa };
+    return sa;
+  } catch {
+    return null;
+  }
+}
+
+export function loadServiceAccount(
+  raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+  file = process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
+): ServiceAccount | null {
+  if (file?.trim()) return loadServiceAccountFile(file.trim());
+  const v = raw?.trim();
+  if (!v) return null;
+  return parseKey(v.startsWith("{") ? v : Buffer.from(v, "base64").toString("utf8"));
 }
 
 export class SheetsError extends Error {

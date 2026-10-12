@@ -74,6 +74,34 @@ grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env || { sed -i '/^TELEGRAM_ALLOWED_
 sed -i '/^BASIC_AUTH_USER=/d; /^BASIC_AUTH_PASSWORD=/d' .env
 has TELEGRAM_BOT_TOKEN || echo "ВНИМАНИЕ: нет TELEGRAM_BOT_TOKEN — сайт запустится, но вход будет закрыт"
 
+say "Ключ Google (только чтение таблиц)"
+KEY_HOST=$(grep -E '^GOOGLE_SERVICE_ACCOUNT_FILE_HOST=' .env | cut -d= -f2- || true)
+KEY_HOST=${KEY_HOST:-/etc/goaltracker/google-service-account.json}
+KEY_UID=10001
+sed -i '/^COMPOSE_FILE=/d' .env
+if [ -f "$KEY_HOST" ]; then
+  # Проверяем формат, не выводя содержимое (печатается только email сервисного аккаунта).
+  KEY_EMAIL=$(python3 -I -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    assert isinstance(d.get("client_email"), str) and "PRIVATE KEY" in d.get("private_key", "")
+    print(d["client_email"])
+except Exception:
+    sys.exit(1)
+' "$KEY_HOST") || die "файл ключа $KEY_HOST повреждён или это не ключ сервисного аккаунта"
+  if getent passwd "$KEY_UID" >/dev/null; then
+    die "uid $KEY_UID занят пользователем $(getent passwd $KEY_UID | cut -d: -f1) — ключ не будет передан ему; нужна ручная проверка"
+  fi
+  # Владелец — отдельный uid контейнера web, права 400: на хосте ключ читает только root.
+  chown "$KEY_UID:$KEY_UID" "$KEY_HOST"
+  chmod 400 "$KEY_HOST"
+  echo "COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml" >> .env
+  echo "ключ найден ($KEY_EMAIL), подключается в контейнер только для чтения"
+else
+  echo "файла ключа $KEY_HOST нет — сайт запустится, разделы проекта покажут «не настроено»"
+fi
+
 say "Сборка образов по одному (экономия памяти)"
 export COMPOSE_PARALLEL_LIMIT=1
 docker compose build migrate
@@ -103,6 +131,12 @@ if has TELEGRAM_BOT_TOKEN && grep -q '^TELEGRAM_ALLOWED_USER_IDS=[0-9]' .env; th
   fi
 else
   echo "Бот не запущен: в .env нет TELEGRAM_BOT_TOKEN или TELEGRAM_ALLOWED_USER_IDS"
+fi
+
+if grep -q '^COMPOSE_FILE=.*docker-compose.google.yml' .env; then
+  say "Проверка загрузки Google-таблиц (печатается только количество записей)"
+  # Не прерывает установку: сайт уже работает, ошибка видна здесь и на странице проекта.
+  docker compose --profile tools run --rm sheets-check || echo "!!! загрузка таблиц не удалась — см. сообщение выше"
 fi
 
 docker compose ps

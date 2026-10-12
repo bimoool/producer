@@ -1,0 +1,37 @@
+# Подключение ключа Google (только чтение таблиц). Включается deploy/install.sh,
+# когда файл ключа есть на сервере: COMPOSE_FILE=docker-compose.yml:docker-compose.google.yml в .env.
+# Ключ монтируется в контейнер read-only; содержимое в образ и в .env не попадает.
+# web и проверка запускаются от отдельного uid 10001 — владельца файла ключа на хосте.
+x-google-key: &google-key
+  type: bind
+  source: ${GOOGLE_SERVICE_ACCOUNT_FILE_HOST:-/etc/goaltracker/google-service-account.json}
+  target: /run/secrets/google-service-account.json
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  web:
+    user: "10001:10001"
+    environment:
+      GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/google-service-account.json
+    volumes:
+      - *google-key
+
+  # Разовая проверка загрузки таблиц: docker compose --profile tools run --rm sheets-check
+  sheets-check:
+    image: goaltracker-tools:latest
+    profiles: ["tools"]
+    user: "10001:10001"
+    command: ["node_modules/.bin/tsx", "src/scripts/sheets-check.ts"]
+    environment:
+      DATABASE_URL: postgres://goal:${POSTGRES_PASSWORD}@db:5432/goaltracker
+      GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/google-service-account.json
+      HOME: /tmp
+      TZ: Asia/Yekaterinburg
+    volumes:
+      - *google-key
+    mem_limit: 256m
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"

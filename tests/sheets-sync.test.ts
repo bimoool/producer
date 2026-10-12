@@ -3,6 +3,9 @@
  * сохранение прежних данных при ошибке, защита от частых запросов.
  */
 import postgres from "postgres";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadServiceAccount, readTabs, type SheetsDeps } from "@/lib/sheets/google";
 import { getSnapshotState, syncWorkspaceSheet } from "@/lib/sheets/sync";
@@ -73,6 +76,23 @@ describe("loadServiceAccount", () => {
     expect(loadServiceAccount("")).toBeNull();
     expect(loadServiceAccount("not json")).toBeNull();
     expect(loadServiceAccount(JSON.stringify({ client_email: "x" }))).toBeNull();
+  });
+  it("из файла (GOOGLE_SERVICE_ACCOUNT_FILE) — приоритетнее переменной; ошибки не раскрывают содержимое", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "sa-"));
+    try {
+      const file = path.join(dir, "key.json");
+      writeFileSync(file, JSON.stringify(key), { mode: 0o400 });
+      expect(loadServiceAccount(undefined, file)?.client_email).toBe(key.client_email);
+      expect(loadServiceAccount("garbage", file)?.client_email).toBe(key.client_email);
+      expect(loadServiceAccount(undefined, path.join(dir, "missing.json"))).toBeNull();
+      const broken = path.join(dir, "broken.json");
+      writeFileSync(broken, "{ not json");
+      expect(loadServiceAccount(undefined, broken)).toBeNull();
+      const dirAsFile = path.join(dir);
+      expect(loadServiceAccount(undefined, dirAsFile)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

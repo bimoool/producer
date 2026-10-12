@@ -69,7 +69,13 @@ mkdir -p /opt/goaltracker-backups && ( crontab -l 2>/dev/null | grep -v goaltrac
 ## Google Sheets (данные проектов)
 
 Чтение таблиц — сервисным аккаунтом Google, только чтение (`spreadsheets.readonly`).
-Ключ хранится только в `/opt/goaltracker/.env` как `GOOGLE_SERVICE_ACCOUNT_JSON`
-(JSON ключа в base64, одной строкой). Таблица открывается email сервисного аккаунта
-с правом «Читатель»; публичной она не становится. Снимок последних успешно полученных
-данных хранится в `workspace_sheet_snapshots` и остаётся при сбоях Google.
+Ключ лежит на сервере файлом `/etc/goaltracker/google-service-account.json`
+(другой путь — `GOOGLE_SERVICE_ACCOUNT_FILE_HOST` в `.env`). `install.sh`:
+- проверяет формат ключа, не выводя содержимое (печатается только email аккаунта);
+- делает владельцем файла uid 10001 с правами 400 — на хосте ключ читает только root;
+- подключает `docker-compose.google.yml` (через `COMPOSE_FILE` в `.env`): ключ монтируется
+  в контейнер `web` только для чтения, `web` работает от uid 10001;
+- после запуска выполняет `sheets-check` — загрузку таблиц с выводом только количества записей.
+
+Ручная проверка: `docker compose --profile tools run --rm sheets-check`.
+Снимок последних успешно полученных данных хранится в `workspace_sheet_snapshots` и остаётся при сбоях Google.
