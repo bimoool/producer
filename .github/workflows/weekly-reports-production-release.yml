@@ -1,0 +1,148 @@
+name: Weekly reports production release
+on:
+  push:
+    branches: [ops/producer-deploy-access]
+    paths:
+      - .github/workflows/weekly-reports-production-release.yml
+      - deploy/weekly-reports-production.sh
+      - deploy/weekly-reports-browser-smoke.cjs
+      - deploy/production-smoke-session.sh
+permissions:
+  contents: read
+concurrency:
+  group: producer-production-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      result: ${{ steps.result.outputs.result }}
+      report_url: ${{ steps.smoke.outputs.report_url }}
+    steps:
+      - name: Checkout release operations
+        uses: actions/checkout@v4
+        with:
+          path: ops
+      - name: Checkout exact authorized application commit
+        uses: actions/checkout@v4
+        with:
+          ref: 5963019e10bd8a24f6cf0e74978e40a732b6dbf8
+          path: release
+      - name: Configure pinned SSH identity
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_SSH_KEY"
+          mkdir -m 700 -p "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/producer_release"
+          chmod 600 "$HOME/.ssh/producer_release"
+          cp ops/deploy/production-known-hosts "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<'CONFIG'
+          Host producer-release
+            HostName 192.241.141.47
+            User root
+            IdentityFile ~/.ssh/producer_release
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 15
+          CONFIG
+          chmod 600 "$HOME/.ssh/config"
+          ssh producer-release 'test "$(git -C /opt/goaltracker rev-parse HEAD)" = 5a038c073b850e3e9b487c608ac1bd10e2cbad00 && test -z "$(git -C /opt/goaltracker status --porcelain)"'
+      - name: Build exact release images away from the VPS
+        run: |
+          set -euo pipefail
+          docker build --target tools --label org.opencontainers.image.revision=5963019e10bd8a24f6cf0e74978e40a732b6dbf8 -t goaltracker-tools:release-5963019 release
+          docker build --target web --label org.opencontainers.image.revision=5963019e10bd8a24f6cf0e74978e40a732b6dbf8 -t goaltracker-web:release-5963019 release
+      - name: Prepare isolated browser tooling
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/producer-browser
+          npm install --prefix /tmp/producer-browser --no-audit --no-fund playwright@1.58.2
+          /tmp/producer-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Transfer verified release images without altering active services
+        run: |
+          set -euo pipefail
+          ssh producer-release 'test "$(uname -m)" = x86_64; test "$(df --output=avail -k /var/lib/docker | tail -1)" -gt 3000000'
+          docker save goaltracker-tools:release-5963019 goaltracker-web:release-5963019 | gzip -1 | ssh producer-release 'gzip -d | docker load'
+      - name: Back up, restore, rehearse migration and deploy
+        id: deploy
+        run: |
+          set -euo pipefail
+          set +e
+          ssh producer-release 'bash -se' < ops/deploy/weekly-reports-production.sh 2>&1 | tee /tmp/producer-release.log
+          deploy_rc=${PIPESTATUS[0]}
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          text = Path('/tmp/producer-release.log').read_text()
+          for line in text.splitlines():
+              if line.startswith('PRODUCER_'):
+                  safe = line.replace('%','%25').replace('\r','%0D')
+                  print('::notice title=Production release checkpoint::' + safe)
+                  if line.startswith('PRODUCER_BACKUP_DIR='):
+                      with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                          f.write('backup_dir=' + line.split('=',1)[1] + '\n')
+          PY
+          exit "$deploy_rc"
+      - name: Verify authenticated production report without fabricated data
+        id: smoke
+        run: |
+          set -euo pipefail
+          session=$(ssh producer-release 'bash -se' < ops/deploy/production-smoke-session.sh)
+          test -n "$session"
+          echo "::add-mask::$session"
+          hash=$(printf '%s' "$session" | sha256sum | cut -d ' ' -f 1)
+          cleanup() {
+            ssh producer-release "docker exec goaltracker-db-1 psql -U goal -d goaltracker -X -q -v ON_ERROR_STOP=1 -c \"DELETE FROM sessions WHERE token_hash='$hash' AND login_hash LIKE 'release-smoke-5963019-%'\"" || true
+          }
+          trap cleanup EXIT
+          export PRODUCER_SESSION_TOKEN="$session"
+          export PLAYWRIGHT_MODULE=/tmp/producer-browser/node_modules/playwright
+          node ops/deploy/weekly-reports-browser-smoke.cjs | tee /tmp/producer-smoke-result.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          result = json.loads(Path('/tmp/producer-smoke-result.json').read_text())
+          if result['status'] != 'PASS': raise SystemExit('Browser smoke did not pass')
+          print('::notice title=Authenticated production report::' + result['reportUrl'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('report_url=' + result['reportUrl'] + '\n')
+          PY
+      - name: Recheck historical reports and finances; restore prior bot service
+        run: |
+          set -euo pipefail
+          ssh producer-release 'bash -se' -- '${{ steps.deploy.outputs.backup_dir }}' < ops/deploy/weekly-reports-postcheck.sh | tee /tmp/producer-postcheck.log
+          while IFS= read -r line; do
+            case "$line" in PRODUCER_*) echo "::notice title=Production postcheck::$line";; esac
+          done < /tmp/producer-postcheck.log
+      - name: Record completed deployment
+        id: result
+        run: echo 'result=DEPLOYED_AND_VERIFIED_5963019' >> "$GITHUB_OUTPUT"
+      - name: Preserve production if post-deployment verification fails
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          set -euo pipefail
+          ssh producer-release 'bash -se' -- '${{ steps.deploy.outputs.backup_dir }}' <<'REMOTE'
+          set -euo pipefail
+          backup_dir=$1
+          case "$backup_dir" in /opt/goaltracker-backups/weekly-reports-*) ;; *) exit 1;; esac
+          source "$backup_dir/state.env"
+          "${release_compose[@]}" stop web
+          if [ "$BOT_WAS_RUNNING" = 1 ]; then "${release_compose[@]}" --profile bot stop bot; fi
+          docker exec "$PRODUCTION_DB_CONTAINER" pg_dump -U goal -d goaltracker --format=custom --no-owner > "$backup_dir/post-verification-failure.dump"
+          echo 'Production verification failed: writers stopped, database retained, additional backup saved.'
+          REMOTE
+      - name: Remove runner credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/producer_release"
+  result:
+    needs: release
+    if: always()
+    runs-on: ubuntu-latest
+    name: ${{ needs.release.outputs.result || 'RELEASE_NOT_VERIFIED_CHECK_LOGS' }}
+    steps:
+      - run: echo 'Result — ${{ needs.release.result }}; report — ${{ needs.release.outputs.report_url }}'
