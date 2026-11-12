@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -179,6 +180,12 @@ export const weeklyReports = pgTable(
   "weekly_reports",
   {
     id: id(),
+    // NULL metadata identifies legacy reports; their original periods remain untouched.
+    declarationId: uuid("declaration_id").references(() => declarations.id, { onDelete: "restrict" }),
+    reportDate: date("report_date"),
+    coverageStart: date("coverage_start"),
+    coverageEnd: date("coverage_end"),
+    cutoffDate: date("cutoff_date"),
     weekNumber: integer("week_number").notNull(),
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
@@ -196,7 +203,10 @@ export const weeklyReports = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    unique("weekly_reports_period_unique").on(t.periodStart),
+    uniqueIndex("weekly_reports_declaration_date_unique").on(
+      sql`coalesce(${t.declarationId}, '00000000-0000-4000-8000-000000000001'::uuid)`,
+      sql`coalesce(${t.reportDate}, ${t.periodEnd})`,
+    ),
     check("weekly_reports_status_check", sql`${t.status} in ('draft','final','sent')`),
     check("weekly_reports_sent_has_date", sql`${t.status} <> 'sent' or ${t.sentOn} is not null`),
   ],

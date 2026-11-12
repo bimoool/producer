@@ -27,8 +27,8 @@ export const reportFieldsSchema = z.object({
   insight: text,
   includeFinance: z.boolean().default(false),
   finance: z
-    .object({ cycleMonth: text, netProfit: text, revenue: text, avgCheck: text })
-    .default({ cycleMonth: "", netProfit: "", revenue: "", avgCheck: "" }),
+    .object({ cycleMonth: text, actualReceipts: text, expectedPayments: text, netProfit: text, revenue: text, avgCheck: text })
+    .default({ cycleMonth: "", actualReceipts: "", expectedPayments: "", netProfit: "", revenue: "", avgCheck: "" }),
   extraBusiness: z
     .object({ name: text, netProfit: text, note: text })
     .default({ name: "", netProfit: "", note: "" }),
@@ -40,22 +40,43 @@ export const reportFieldsSchema = z.object({
 });
 export type ReportFields = z.infer<typeof reportFieldsSchema>;
 
-export type ReportPeriod = { weekNumber: number; periodStart: string; periodEnd: string };
+/** Strict calendar dates keep explicit selection independent of the host timezone. */
+export const reportDateSchema = z.iso.date().refine((day) => weekdayISO(day) === 5, "Отчётная дата должна быть пятницей");
+
+export type ReportPeriod = {
+  weekNumber: number;
+  periodStart: string;
+  periodEnd: string;
+  // Absent for historical records: never reinterpret their original periods.
+  reportDate?: string;
+  coverageStart?: string;
+  coverageEnd?: string;
+  cutoffDate?: string;
+};
 
 /**
- * Отчётная неделя заканчивается в пятницу включительно (день отчёта).
- * Неделя 1: от начала цикла до первой пятницы после него
- * (для цикла с 02.10.2026 — 02.10–09.10, как в отправленном отчёте).
- * Далее — суббота…пятница.
+ * Select the upcoming Friday, including today on Friday. The legacy calendar
+ * period stays Saturday–Friday (the first period starts at cycleStart).
+ * Actual coverage is Monday–Friday, while the saved cutoff limits known facts.
+ * Pass reportDate explicitly to select a different reporting Friday.
  */
-export function reportPeriodFor(reportDay: string, cycleStart: string): ReportPeriod {
-  const back = (weekdayISO(reportDay) - 5 + 7) % 7;
-  const friday = addDaysISO(reportDay, -back);
+export function reportPeriodFor(day: string, cycleStart: string, reportDate?: string): ReportPeriod {
+  z.iso.date().parse(day);
+  z.iso.date().parse(cycleStart);
+  const friday = reportDate === undefined
+    ? addDaysISO(day, (5 - weekdayISO(day) + 7) % 7)
+    : reportDateSchema.parse(reportDate);
   const toFirstFriday = (5 - weekdayISO(cycleStart) + 7) % 7 || 7;
   const firstFriday = addDaysISO(cycleStart, toFirstFriday);
   const weekNumber = Math.floor(diffDaysISO(friday, firstFriday) / 7) + 1;
   const periodStart = weekNumber === 1 ? cycleStart : addDaysISO(friday, -6);
-  return { weekNumber, periodStart, periodEnd: friday };
+  return {
+    weekNumber, periodStart, periodEnd: friday,
+    reportDate: friday,
+    coverageStart: addDaysISO(friday, -4),
+    coverageEnd: friday,
+    cutoffDate: day < friday ? day : friday,
+  };
 }
 
 /** Последний отчёт месяца: следующая пятница уже в другом месяце. */
@@ -114,6 +135,11 @@ export function renderReport(period: ReportPeriod, f: ReportFields): string {
   const out: string[] = [];
   out.push(`ОТЧЁТ ЗА ${period.weekNumber} НЕДЕЛЮ`);
   out.push(`Период: ${formatRu(period.periodStart)}–${formatRu(period.periodEnd)}`);
+  if (period.reportDate) out.push(`Отчётная дата: ${formatRu(period.reportDate)}`);
+  if (period.coverageStart && period.coverageEnd) {
+    out.push(`Фактический охват: ${formatRu(period.coverageStart)}–${formatRu(period.coverageEnd)}`);
+  }
+  if (period.cutoffDate) out.push(`Дата среза: ${formatRu(period.cutoffDate)}`);
   out.push("");
   out.push("1. Статус по декларации");
   out.push("");
@@ -137,7 +163,9 @@ export function renderReport(period: ReportPeriod, f: ReportFields): string {
   out.push("");
   if (f.includeFinance) {
     out.push(line("Месяц цикла", f.finance.cycleMonth));
-    out.push(line("Чистая прибыль", f.finance.netProfit));
+    out.push(line("Фактические поступления", f.finance.actualReceipts ?? ""));
+    out.push(line("Ожидаемые оплаты", f.finance.expectedPayments ?? ""));
+    out.push(line("Личная прибыль", f.finance.netProfit));
     out.push(line("Выручка", f.finance.revenue));
     out.push(line("Средний чек", f.finance.avgCheck));
   } else {
@@ -152,7 +180,7 @@ export function renderReport(period: ReportPeriod, f: ReportFields): string {
   out.push("");
   out.push("5. Состояние");
   out.push("");
-  const score = f.stateScore === null ? "" : `${f.stateScore}/10`;
+  const score = f.stateScore === null ? "Требует уточнения" : `${f.stateScore}/10`;
   const why = f.stateWhy.trim();
   out.push(line("Оценка", [score, why].filter(Boolean).join(" — ")));
   out.push("");

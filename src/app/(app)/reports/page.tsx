@@ -6,13 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { ReportDatePicker } from "@/components/app/report-date-picker";
+import { buildCurrentReport } from "@/lib/report-service";
 import { listReports } from "@/lib/data";
 import { formatRu } from "@/lib/domain/dates";
 
 export default async function ReportsPage() {
   // Личный кабинет — только владелец (проверка на сервере, не только в proxy).
   await ownerPage();
-  const reports = await listReports();
+  const [reports, current] = await Promise.all([listReports(), buildCurrentReport()]);
   return (
     <>
       <PageHeader
@@ -24,6 +26,14 @@ export default async function ReportsPage() {
           </Button>
         }
       />
+      <Card className="mb-4">
+        <CardHeader><CardTitle className="text-base">Актуальная неделя · отчёт на {formatRu(current.period.reportDate ?? current.period.periodEnd)}</CardTitle></CardHeader>
+        <CardContent className="grid gap-3">
+          <p className="text-sm text-muted-foreground">{current.status === "sent" ? "Отправлен" : current.status === "final" ? "Готов" : current.savedId ? "Черновик" : "Черновик ещё не сохранён"}</p>
+          <Button asChild className="w-fit"><Link href={current.savedId ? `/reports/${current.savedId}` : "/reports/new"}>Открыть актуальный отчёт</Link></Button>
+        </CardContent>
+      </Card>
+      <ReportDatePicker date={current.period.reportDate ?? current.period.periodEnd} />
       {reports.length === 0 ? (
         <Empty className="border">
           <EmptyHeader>
@@ -48,13 +58,16 @@ export default async function ReportsPage() {
                   {r.status === "sent" && !r.originalText ? <Badge variant="outline">текст не импортирован</Badge> : null}
                 </div>
               </CardHeader>
-              <CardContent className="flex gap-2">
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/reports/${r.id}`}>Открыть</Link>
-                </Button>
-                {(r.status === "sent" ? r.originalText : r.content) ? (
-                  <CopyButton text={(r.status === "sent" ? r.originalText : r.content) ?? ""} size="sm" label="Скопировать" />
-                ) : null}
+              <CardContent className="grid gap-3">
+                {r.reportDate ? <p className="text-sm text-muted-foreground">Отчётная дата: {formatRu(r.reportDate)} · фактический охват: {formatRu(r.coverageStart)}–{formatRu(r.coverageEnd)} · срез: {formatRu(r.cutoffDate)}</p> : null}
+                <div className="flex gap-2">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/reports/${r.id}`}>Открыть</Link>
+                  </Button>
+                  {(r.status === "sent" ? r.originalText : r.content) ? (
+                    <CopyButton text={(r.status === "sent" ? r.originalText : r.content) ?? ""} size="sm" label="Скопировать" />
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           ))}
