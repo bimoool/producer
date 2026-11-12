@@ -1,0 +1,49 @@
+name: Production SSH preflight
+on:
+  push:
+    branches: [ops/producer-deploy-access]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.check.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only production inspection
+        id: check
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_SSH_KEY" || { echo '::error::VPS_SSH_KEY is missing'; exit 1; }
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          chmod 600 "$key"
+          printf '%s\n' "$VPS_SSH_KEY" > "$key"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=deploy/production-known-hosts root@192.241.141.47 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/goaltracker
+          echo 'Production checkout:'
+          git rev-parse HEAD
+          echo 'Checkout changes:'
+          git status --porcelain
+          echo 'Project services:'
+          docker compose -p goaltracker ps
+          echo 'Database readiness:'
+          docker compose -p goaltracker exec -T db pg_isready -U goal -d goaltracker
+          echo 'Health:'
+          curl -fsS http://127.0.0.1:3100/api/health
+          echo
+          echo 'Available memory and disk:'
+          free -m
+          df -h /opt/goaltracker /opt
+          REMOTE
+          echo 'result=SSH_AND_HEALTH_OK' >> "$GITHUB_OUTPUT"
+  result:
+    needs: preflight
+    runs-on: ubuntu-latest
+    name: ${{ needs.preflight.outputs.result }}
+    steps:
+      - run: echo 'Verified SSH and production health. No deployment or database changes performed.'
