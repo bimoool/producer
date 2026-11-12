@@ -19,7 +19,7 @@ jobs:
           CONFIGURED_VARIABLES: ${{ toJSON(vars) }}
         run: |
           python3 - <<'PY'
-          import json, os, urllib.request, urllib.error
+          import json, os, socket, urllib.request, urllib.error
           names = ['variable-' + k for k in json.loads(os.environ['CONFIGURED_VARIABLES'])]
           req = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/environments', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
           try:
@@ -30,6 +30,15 @@ jobs:
                   names.append('NO_CONFIGURED_ENVIRONMENTS')
           except urllib.error.HTTPError as e:
               names.append('ENVIRONMENT_METADATA_HTTP_' + str(e.code))
+          try:
+              with socket.create_connection(('192.241.141.47', 22), timeout=10) as conn:
+                  conn.settimeout(5)
+                  banner = conn.recv(255).decode('ascii', errors='replace')
+                  names.append('VPS_SSH_22_OPEN' if banner.startswith('SSH-') else 'VPS_TCP_22_OPEN')
+          except ConnectionRefusedError:
+              names.append('VPS_SSH_22_REFUSED')
+          except (TimeoutError, OSError):
+              names.append('VPS_SSH_22_UNREACHABLE')
           names = sorted(names)
           print('Configuration metadata only: ' + ', '.join(names))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
