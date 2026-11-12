@@ -22,7 +22,7 @@ jobs:
           trap 'rm -f "$key"' EXIT
           chmod 600 "$key"
           printf '%s\n' "$VPS_SSH_KEY" > "$key"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=deploy/production-known-hosts root@192.241.141.47 'bash -se' <<'REMOTE'
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=deploy/production-known-hosts root@192.241.141.47 'bash -se' <<'REMOTE' | tee /tmp/producer-preflight.log
           set -euo pipefail
           cd /opt/goaltracker
           echo 'Production checkout:'
@@ -40,7 +40,12 @@ jobs:
           free -m
           df -h /opt/goaltracker /opt
           REMOTE
-          echo 'result=SSH_AND_HEALTH_OK' >> "$GITHUB_OUTPUT"
+          python3 - <<'PYLOG'
+          from pathlib import Path
+          text = Path('/tmp/producer-preflight.log').read_text().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::notice title=Read-only production status::' + text)
+          PYLOG
+          echo 'result=SSH_AND_HEALTH_OK'  >> "$GITHUB_OUTPUT"
   result:
     needs: preflight
     runs-on: ubuntu-latest
