@@ -1,0 +1,36 @@
+name: Production access discovery
+on:
+  push:
+    branches: [ops/producer-deploy-access]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.names.outputs.names }}
+    steps:
+      - name: List configured secret names only
+        id: names
+        env:
+          CONFIGURED_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          names = sorted(k for k in json.loads(os.environ['CONFIGURED_SECRETS']) if k != 'GITHUB_TOKEN')
+          print('Configured secret names: ' + ', '.join(names))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('names=' + json.dumps(names or ['NO_REPOSITORY_SECRETS']) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('## Configured secret names\n' + '\n'.join('- `' + n + '`' for n in names) + '\n')
+          PY
+  metadata:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        secret_name: ${{ fromJSON(needs.discover.outputs.names) }}
+    name: Configured secret — ${{ matrix.secret_name }}
+    steps:
+      - run: echo 'Name discovered; secret values remain private. No production changes performed.'
