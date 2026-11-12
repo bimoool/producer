@@ -5,32 +5,42 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  deployments: read
 jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
       names: ${{ steps.names.outputs.names }}
     steps:
-      - name: List configured secret names only
+      - name: Inspect environment names and variable binding names
         id: names
         env:
-          CONFIGURED_SECRETS: ${{ toJSON(secrets) }}
+          GH_TOKEN: ${{ github.token }}
+          CONFIGURED_VARIABLES: ${{ toJSON(vars) }}
         run: |
           python3 - <<'PY'
-          import json, os
-          names = sorted(k for k in json.loads(os.environ['CONFIGURED_SECRETS']) if k != 'GITHUB_TOKEN')
-          print('Configured secret names: ' + ', '.join(names))
+          import json, os, urllib.request, urllib.error
+          names = ['variable-' + k for k in json.loads(os.environ['CONFIGURED_VARIABLES'])]
+          req = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/environments', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  environments = json.load(r).get('environments', [])
+              names += ['environment-' + e['name'] for e in environments]
+              if not environments:
+                  names.append('NO_CONFIGURED_ENVIRONMENTS')
+          except urllib.error.HTTPError as e:
+              names.append('ENVIRONMENT_METADATA_HTTP_' + str(e.code))
+          names = sorted(names)
+          print('Configuration metadata only: ' + ', '.join(names))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write('names=' + json.dumps(names or ['NO_REPOSITORY_SECRETS']) + '\n')
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write('## Configured secret names\n' + '\n'.join('- `' + n + '`' for n in names) + '\n')
+              f.write('names=' + json.dumps(names) + '\n')
           PY
   metadata:
     needs: discover
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        secret_name: ${{ fromJSON(needs.discover.outputs.names) }}
-    name: Configured secret — ${{ matrix.secret_name }}
+        binding: ${{ fromJSON(needs.discover.outputs.names) }}
+    name: Configuration — ${{ matrix.binding }}
     steps:
-      - run: echo 'Name discovered; secret values remain private. No production changes performed.'
+      - run: echo 'Metadata only; no secret values accessed or production changes performed.'
