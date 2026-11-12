@@ -14,14 +14,31 @@ jobs:
       - name: List configured secret names only
         id: names
         env:
-          CONFIGURED_SECRETS: ${{ toJSON(secrets) }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           python3 - <<'PY'
           import json, os
-          names = sorted(k for k in json.loads(os.environ['CONFIGURED_SECRETS']) if k != 'GITHUB_TOKEN')
+          candidates = ['VPS_HOST', 'VPS_USER', 'VPS_USERNAME', 'VPS_PORT', 'VPS_SSH_KEY', 'VPS_SSH_PRIVATE_KEY', 'SSH_HOST', 'SSH_USER', 'SSH_PORT', 'SSH_KEY', 'SSH_PRIVATE_KEY', 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_SSH_KEY', 'SERVER_HOST', 'SERVER_USER', 'SERVER_SSH_KEY']
+          names = sorted(k for k in candidates if os.environ.get(k))
           print('Configured secret names: ' + ', '.join(names))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write('names=' + json.dumps(names or ['NO_REPOSITORY_SECRETS']) + '\n')
+              f.write('names=' + json.dumps(names or ['NO_MATCHING_DEPLOY_SECRETS']) + '\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
               f.write('## Configured secret names\n' + '\n'.join('- `' + n + '`' for n in names) + '\n')
           PY
