@@ -20,7 +20,15 @@ export default async function ReportPage({ params }: PageProps<"/reports/[id]">)
     <ReportEditor
       key={report.updatedAt.toISOString()}
       id={report.id}
-      period={{ weekNumber: report.weekNumber, periodStart: report.periodStart, periodEnd: report.periodEnd }}
+      period={{
+        weekNumber: report.weekNumber,
+        periodStart: report.periodStart,
+        periodEnd: report.periodEnd,
+        reportDate: report.reportDate ?? undefined,
+        coverageStart: report.coverageStart ?? undefined,
+        coverageEnd: report.coverageEnd ?? undefined,
+        cutoffDate: report.cutoffDate ?? undefined,
+      }}
       initial={fields}
       initialStatus={report.status === "final" ? "final" : "draft"}
     />

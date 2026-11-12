@@ -57,6 +57,10 @@ export function SentReport({
     weekNumber: number;
     periodStart: string;
     periodEnd: string;
+    reportDate?: string | null;
+    coverageStart?: string | null;
+    coverageEnd?: string | null;
+    cutoffDate?: string | null;
     sentOn: string | null;
     originalText: string | null;
     facts: ReportFacts | null;
@@ -73,6 +77,9 @@ export function SentReport({
             Отправлен{report.sentOn ? ` ${formatRu(report.sentOn)}` : ""} · период {formatRu(report.periodStart)}–
             {formatRu(report.periodEnd)} · не изменяется
           </CardDescription>
+          {report.reportDate ? <CardDescription>
+            Отчётная дата: {formatRu(report.reportDate)} · фактический охват: {formatRu(report.coverageStart)}–{formatRu(report.coverageEnd)} · дата среза: {formatRu(report.cutoffDate)}
+          </CardDescription> : null}
         </CardHeader>
       </Card>
 

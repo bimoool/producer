@@ -87,6 +87,9 @@ export function ReportEditor({
             {status === "final" ? "готов" : "черновик"}
             {dirty ? " · есть несохранённые изменения" : ""}
           </CardDescription>
+          {period.reportDate ? <CardDescription>
+            Отчётная дата: {formatRu(period.reportDate)} · фактический охват: {formatRu(period.coverageStart)}–{formatRu(period.coverageEnd)} · дата среза: {formatRu(period.cutoffDate)}
+          </CardDescription> : null}
         </CardHeader>
       </Card>
 
@@ -129,7 +132,7 @@ export function ReportEditor({
               </div>
               <Input
                 aria-label="Комментарий"
-                placeholder="Комментарий (необязательно)"
+                placeholder="Комментарий: например, закрытый пилот, ещё не публичный выпуск"
                 value={d.comment}
                 onChange={(e) =>
                   set("declaration", f.declaration.map((x, j) => (j === i ? { ...x, comment: e.target.value } : x)))
@@ -156,19 +159,21 @@ export function ReportEditor({
       <Card>
         <CardHeader>
           <CardTitle>3. Финансы за месяц</CardTitle>
-          <CardDescription>Заполняется только в последнем отчёте месяца.</CardDescription>
+          <CardDescription>Необязательно для недельного отчёта. Неизвестные суммы оставьте пустыми — это не нули.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={f.includeFinance} onCheckedChange={(v) => set("includeFinance", v === true)} />
-            Это последний отчёт месяца — заполнить финансы
+            Добавить подтверждённые финансы за месяц
           </label>
           {f.includeFinance ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {(
                 [
                   ["cycleMonth", "Месяц цикла"],
-                  ["netProfit", "Чистая прибыль"],
+                  ["actualReceipts", "Фактические поступления"],
+                  ["expectedPayments", "Ожидаемые оплаты"],
+                  ["netProfit", "Личная прибыль"],
                   ["revenue", "Выручка"],
                   ["avgCheck", "Средний чек"],
                 ] as const
@@ -209,6 +214,7 @@ export function ReportEditor({
           <CardTitle>5. Состояние</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
+          {f.stateScore === null ? <p className="text-sm text-muted-foreground">Требует уточнения</p> : null}
           <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Оценка от 1 до 10">
             {Array.from({ length: 10 }, (_, k) => k + 1).map((n) => (
               <Button

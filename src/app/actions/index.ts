@@ -7,7 +7,8 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { AccessDenied, assertOwner } from "@/lib/authz";
 import { addDaysISO, todayISO } from "@/lib/domain/dates";
-import { renderReport, reportFieldsSchema, type ReportFields, type ReportPeriod } from "@/lib/domain/report";
+import type { ReportFields, ReportPeriod } from "@/lib/domain/report";
+import { persistReport } from "@/lib/report-persistence";
 
 const { declarationItems, deals, goals, progressUpdates, tasks, taskComments, weeklyReports } = schema;
 
@@ -275,12 +276,6 @@ export async function addComment(_: unknown, form: FormData): Promise<ActionResu
 
 // ---------- Отчёты ----------
 
-const periodSchema = z.object({
-  weekNumber: z.number().int().min(1).max(1000),
-  periodStart: z.iso.date(),
-  periodEnd: z.iso.date(),
-});
-
 export async function saveReport(input: {
   id?: string;
   period: ReportPeriod;
@@ -290,28 +285,9 @@ export async function saveReport(input: {
   try {
     // Личные данные владельца: проверка на сервере в каждом действии.
     await assertOwner();
-    const period = periodSchema.parse(input.period);
-    const fields = reportFieldsSchema.parse(input.fields);
-    const status = z.enum(["draft", "final"]).parse(input.status);
-    const content = renderReport(period, fields);
-    const db = getDb();
-    if (input.id) {
-      const id = uuid.parse(input.id);
-      await db.update(weeklyReports).set({ fields, content, status }).where(eq(weeklyReports.id, id));
-      refresh();
-      return { ok: true, id };
-    }
-    const [dup] = await db
-      .select({ id: weeklyReports.id })
-      .from(weeklyReports)
-      .where(eq(weeklyReports.periodStart, period.periodStart));
-    if (dup) return { ok: false, error: "Отчёт за этот период уже есть — откройте его в истории" };
-    const [row] = await db
-      .insert(weeklyReports)
-      .values({ ...period, fields, content, status })
-      .returning({ id: weeklyReports.id });
+    const id = await persistReport(input);
     refresh();
-    return { ok: true, id: row.id };
+    return { ok: true, id };
   } catch (e) {
     return fail(e);
   }
@@ -324,13 +300,14 @@ export async function markReportSent(id: string): Promise<ActionResult> {
     await assertOwner();
     const reportId = uuid.parse(id);
     const db = getDb();
-    const [r] = await db.select().from(weeklyReports).where(eq(weeklyReports.id, reportId));
-    if (!r) return { ok: false, error: "Отчёт не найден" };
-    if (r.status === "sent") return { ok: true, id: reportId };
-    await db
-      .update(weeklyReports)
-      .set({ status: "sent", sentOn: todayISO(), originalText: r.content })
-      .where(eq(weeklyReports.id, reportId));
+    await db.transaction(async (tx) => {
+      const [r] = await tx.select().from(weeklyReports).where(eq(weeklyReports.id, reportId)).for("update");
+      if (!r) throw new Error("Отчёт не найден");
+      if (r.status === "sent") return;
+      await tx.update(weeklyReports)
+        .set({ status: "sent", sentOn: todayISO(), originalText: r.content })
+        .where(eq(weeklyReports.id, reportId));
+    });
     refresh();
     return { ok: true, id: reportId };
   } catch (e) {

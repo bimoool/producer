@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { isLastReportOfMonth, prefillReport, renderReport, reportFieldsSchema, reportPeriodFor } from "./report";
+import { isLastReportOfMonth, prefillReport, renderReport, reportFieldsSchema, reportPeriodFor, reportDateSchema } from "./report";
+
+import { todayISO } from "./dates";
 
 const items = [
   { id: "a", originalText: "Провести 15 кастдевов", status: null, currentValue: null, targetValue: 15, unit: "кастдевов" },
@@ -8,26 +10,47 @@ const items = [
 ];
 
 describe("reportPeriodFor", () => {
-  it("первый отчёт 09.10.2026 — неделя 1, 02.10–09.10 (как отправленный)", () => {
-    expect(reportPeriodFor("2026-10-09", "2026-10-02")).toEqual({
-      weekNumber: 1,
-      periodStart: "2026-10-02",
-      periodEnd: "2026-10-09",
+  it("сохраняет календарный период первого отчёта", () => {
+    expect(reportPeriodFor("2026-10-09", "2026-10-02")).toMatchObject({
+      weekNumber: 1, periodStart: "2026-10-02", periodEnd: "2026-10-09",
     });
   });
-  it("до пятницы — всё ещё последняя прошедшая неделя", () => {
-    expect(reportPeriodFor("2026-10-10", "2026-10-02").weekNumber).toBe(1);
-    expect(reportPeriodFor("2026-10-15", "2026-10-02").weekNumber).toBe(1);
-  });
-  it("неделя 2: суббота–пятница 10.10–16.10", () => {
-    expect(reportPeriodFor("2026-10-16", "2026-10-02")).toEqual({
-      weekNumber: 2,
-      periodStart: "2026-10-10",
-      periodEnd: "2026-10-16",
+  it.each(["2026-11-09", "2026-11-12", "2026-11-13"])("%s выбирает пятницу 13 ноября", (day) => {
+    expect(reportPeriodFor(day, "2026-10-02")).toMatchObject({
+      weekNumber: 6, periodStart: "2026-11-07", periodEnd: "2026-11-13",
+      reportDate: "2026-11-13", coverageStart: "2026-11-09", coverageEnd: "2026-11-13", cutoffDate: day,
     });
   });
-  it("до первой пятницы отчёта ещё нет", () => {
-    expect(reportPeriodFor("2026-10-05", "2026-10-02").weekNumber).toBeLessThan(1);
+  it.each(["2026-11-14", "2026-11-15", "2026-11-16"])("%s выбирает следующую пятницу", (day) => {
+    expect(reportPeriodFor(day, "2026-10-02")).toMatchObject({
+      weekNumber: 7, reportDate: "2026-11-20", coverageStart: "2026-11-16", coverageEnd: "2026-11-20", cutoffDate: day,
+    });
+  });
+  it("явный выбор прошлой даты ограничивает срез концом периода", () => {
+    expect(reportPeriodFor("2026-11-12", "2026-10-02", "2026-11-06")).toMatchObject({
+      weekNumber: 5, periodStart: "2026-10-31", periodEnd: "2026-11-06", cutoffDate: "2026-11-06",
+    });
+  });
+  it("явный выбор будущей даты не переносит срез в будущее", () => {
+    expect(reportPeriodFor("2026-11-12", "2026-10-02", "2026-11-20").cutoffDate).toBe("2026-11-12");
+  });
+  it.each(["2026-11-12", "2026-02-30", "not-a-date"])("отклоняет недопустимую отчётную дату %s", (day) => {
+    expect(reportDateSchema.safeParse(day).success).toBe(false);
+    expect(() => reportPeriodFor("2026-11-12", "2026-10-02", day)).toThrow();
+  });
+  it.each([
+    ["2026-11-12T18:59:59.999Z", "2026-11-12", "2026-11-13"],
+    ["2026-11-12T19:00:00.000Z", "2026-11-13", "2026-11-13"],
+    ["2026-11-13T18:59:59.999Z", "2026-11-13", "2026-11-13"],
+    ["2026-11-13T19:00:00.000Z", "2026-11-14", "2026-11-20"],
+    ["2026-11-15T19:00:00.000Z", "2026-11-16", "2026-11-20"],
+  ])("граница суток Екатеринбурга %s", (instant, day, friday) => {
+    expect(todayISO(new Date(instant))).toBe(day);
+    expect(reportPeriodFor(todayISO(new Date(instant)), "2026-10-02").reportDate).toBe(friday);
+  });
+  it("переходит через границу года", () => {
+    expect(reportPeriodFor("2026-12-31", "2026-10-02").reportDate).toBe("2027-01-01");
+    expect(reportPeriodFor("2027-01-02", "2026-10-02").reportDate).toBe("2027-01-08");
   });
 });
 
@@ -74,12 +97,49 @@ describe("renderReport", () => {
   it("пустые данные не ломают отчёт", () => {
     const text = renderReport({ weekNumber: 1, periodStart: "2026-10-02", periodEnd: "2026-10-09" }, reportFieldsSchema.parse({}));
     expect(text).toContain("Требует подтверждения");
-    expect(text).toContain("Оценка:");
+    expect(text).toContain("Оценка: Требует уточнения");
   });
   it("финансы выводятся, когда включены", () => {
     const f = reportFieldsSchema.parse({ includeFinance: true, finance: { revenue: "100 000 ₽" }, stateScore: 7, stateWhy: "нормально" });
     const text = renderReport({ weekNumber: 5, periodStart: "2026-10-24", periodEnd: "2026-10-30" }, f);
     expect(text).toContain("Выручка: 100 000 ₽");
     expect(text).toContain("Оценка: 7/10 — нормально");
+  });
+});
+
+describe("report metadata and confirmed facts", () => {
+  it("показывает дату, охват и фиксированный срез", () => {
+    const period = reportPeriodFor("2026-11-12", "2026-10-02");
+    const text = renderReport(period, reportFieldsSchema.parse({}));
+    expect(text).toContain("Отчётная дата: 13.11.2026");
+    expect(text).toContain("Фактический охват: 09.11.2026–13.11.2026");
+    expect(text).toContain("Дата среза: 12.11.2026");
+  });
+  it("историческая запись без метаданных не получает новый охват", () => {
+    const text = renderReport({ weekNumber: 5, periodStart: "2026-10-31", periodEnd: "2026-11-06" }, reportFieldsSchema.parse({}));
+    expect(text).toContain("Период: 31.10.2026–06.11.2026");
+    expect(text).not.toContain("Фактический охват:");
+    expect(text).not.toContain("Дата среза:");
+  });
+  it("неизвестные деньги остаются пустыми, состояние — null", () => {
+    const f = prefillReport({ items: [], completedTaskTitles: [], nextWeekTaskTitles: [], periodEnd: "2026-11-13" });
+    expect(f.stateScore).toBeNull();
+    expect(Object.values(f.finance).every((v) => v === "")).toBe(true);
+    expect(f.includeFinance).toBe(false);
+  });
+  it("различает поступления, ожидаемые оплаты, выручку и личную прибыль", () => {
+    const f = reportFieldsSchema.parse({ includeFinance: true, finance: { actualReceipts: "10 000 ₽", expectedPayments: "20 000 ₽", revenue: "30 000 ₽", netProfit: "5 000 ₽" } });
+    const text = renderReport(reportPeriodFor("2026-11-12", "2026-10-02"), f);
+    expect(text).toContain("Фактические поступления: 10 000 ₽");
+    expect(text).toContain("Ожидаемые оплаты: 20 000 ₽");
+    expect(text).toContain("Выручка: 30 000 ₽");
+    expect(text).toContain("Личная прибыль: 5 000 ₽");
+  });
+  it("частичный закрытый пилот не становится опубликованным выпуском", () => {
+    const fields = reportFieldsSchema.parse({ declaration: [{ itemId: "pilot", title: "Опубликовать выпуск YouTube", status: "partial", progressText: "0 из 1", comment: "Пилот доступен по закрытой ссылке; публичной публикации нет." }] });
+    const text = renderReport(reportPeriodFor("2026-11-12", "2026-10-02"), fields);
+    expect(text).toContain("частично");
+    expect(text).toContain("публичной публикации нет");
+    expect(fields.declaration[0].status).toBe("partial");
   });
 });

@@ -132,6 +132,15 @@ export async function getReportByPeriod(periodStart: string) {
   return r ?? null;
 }
 
+/** Identity includes the declaration; legacy rows belong to the original cycle. */
+export async function getReportByDate(declarationId: string, reportDate: string) {
+  const [r] = await getDb().select().from(weeklyReports).where(and(
+    sql`coalesce(${weeklyReports.declarationId}, '00000000-0000-4000-8000-000000000001'::uuid) = ${declarationId}::uuid`,
+    sql`coalesce(${weeklyReports.reportDate}, ${weeklyReports.periodEnd}) = ${reportDate}::date`,
+  ));
+  return r ?? null;
+}
+
 /** Варианты для выпадающих списков в формах задач. */
 export async function getLinkOptions() {
   const [goalRows, decl, projectRows] = await Promise.all([listGoals(), getDeclaration(), listProjects()]);

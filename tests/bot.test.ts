@@ -87,7 +87,9 @@ d("telegram bot", () => {
     await msg(OWNER, "/report");
     const out = texts().join("\n");
     expect(out).toContain("ОТЧЁТ ЗА 2 НЕДЕЛЮ\nПериод: 10.10.2026–16.10.2026");
-    expect(out).toContain("2) Провести 3 встречи по упаковке и запуску YouTube-канала. — частично; 2 из 3 встречи (67%)");
+    expect(out).toContain("2) Провести 3 встречи по упаковке и запуску YouTube-канала. — Требует подтверждения");
+    expect(out).not.toContain("2 из 3 встречи (67%)");
+    expect(out).toContain("Дата среза: 16.10.2026");
   });
 
   it("свободный текст → предложение → сохраняется только после подтверждения", async () => {
